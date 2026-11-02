@@ -1,0 +1,115 @@
+/**
+ * Display formatters for Indonesian locale.
+ *
+ * Monetary values arrive from the backend as whole rupiah integers (ADR-008),
+ * so these helpers never deal with decimals.
+ */
+
+const RUPIAH = new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+});
+
+const NUMBER = new Intl.NumberFormat('id-ID');
+
+const DATE = new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+});
+
+const DATE_TIME = new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+});
+
+const DATE_SHORT = new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+});
+
+export function formatRupiah(amount: number): string {
+    return RUPIAH.format(amount);
+}
+
+export function formatNumber(value: number): string {
+    return NUMBER.format(value);
+}
+
+export function formatPercent(value: number, fractionDigits = 0): string {
+    return `${NUMBER.format(Number(value.toFixed(fractionDigits)))}%`;
+}
+
+/** Converts grams to a readable weight, e.g. 1500 -> "1,5 kg". */
+export function formatWeight(gram: number): string {
+    if (gram < 1000) {
+        return `${NUMBER.format(gram)} g`;
+    }
+
+    return `${NUMBER.format(Number((gram / 1000).toFixed(2)))} kg`;
+}
+
+export function formatDate(value: string | Date | null | undefined): string {
+    if (!value) {
+        return '-';
+    }
+
+    return DATE.format(new Date(value));
+}
+
+export function formatDateTime(
+    value: string | Date | null | undefined,
+): string {
+    if (!value) {
+        return '-';
+    }
+
+    return DATE_TIME.format(new Date(value));
+}
+
+export function formatDateShort(
+    value: string | Date | null | undefined,
+): string {
+    if (!value) {
+        return '-';
+    }
+
+    return DATE_SHORT.format(new Date(value));
+}
+
+/** Relative time in Indonesian, e.g. "3 jam lalu". */
+export function formatRelative(
+    value: string | Date | null | undefined,
+): string {
+    if (!value) {
+        return '-';
+    }
+
+    const seconds = Math.round((Date.now() - new Date(value).getTime()) / 1000);
+
+    const units: Array<[label: string, seconds: number]> = [
+        ['tahun', 31536000],
+        ['bulan', 2592000],
+        ['hari', 86400],
+        ['jam', 3600],
+        ['menit', 60],
+    ];
+
+    for (const [label, unitSeconds] of units) {
+        const amount = Math.floor(Math.abs(seconds) / unitSeconds);
+
+        if (amount >= 1) {
+            return seconds >= 0
+                ? `${amount} ${label} lalu`
+                : `dalam ${amount} ${label}`;
+        }
+    }
+
+    return 'baru saja';
+}

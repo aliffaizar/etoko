@@ -10,8 +10,27 @@ export type User = {
     [key: string]: unknown;
 };
 
+export type UserRole =
+    | 'super_admin'
+    | 'admin_pusat'
+    | 'admin_cabang'
+    | 'staff_gudang'
+    | 'kasir'
+    | 'customer';
+
+export type AuthBranch = {
+    id: number;
+    name: string;
+    code: string;
+};
+
 export type Auth = {
     user: User;
+    role: UserRole | null;
+    roleLabel: string | null;
+    isCentral: boolean;
+    branch: AuthBranch | null;
+    permissions: string[];
 };
 
 export type Passkey = {

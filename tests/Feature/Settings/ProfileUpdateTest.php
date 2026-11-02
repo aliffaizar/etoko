@@ -64,7 +64,11 @@ test('user can delete their account', function () {
         ->assertRedirect(route('home'));
 
     $this->assertGuest();
-    expect($user->fresh())->toBeNull();
+
+    // Users are soft deleted so their past orders and stock movements keep a
+    // valid actor (see docs/03-data-model.md).
+    expect($user->fresh()->trashed())->toBeTrue()
+        ->and(User::find($user->id))->toBeNull();
 });
 
 test('correct password must be provided to delete account', function () {

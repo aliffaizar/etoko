@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -35,13 +36,39 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+
+        if ($user instanceof User) {
+            $user->loadMissing('branch');
+        }
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
+                'role' => $user instanceof User ? $user->appRole()?->value : null,
+                'roleLabel' => $user instanceof User ? $user->appRole()?->label() : null,
+                'isCentral' => $user instanceof User && $user->isCentral(),
+                'branch' => $user instanceof User && $user->branch !== null
+                    ? ['id' => $user->branch->id, 'name' => $user->branch->name, 'code' => $user->branch->code]
+                    : null,
+                'permissions' => $user instanceof User ? $this->permissionsFor($user) : [],
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
+    }
+
+    /**
+     * The permission names the user holds, used to build the admin menu.
+     *
+     * The menu is a convenience only: every route is still guarded server side
+     * by its own permission and policy check.
+     *
+     * @return array<int, string>
+     */
+    protected function permissionsFor(User $user): array
+    {
+        return $user->getAllPermissions()->pluck('name')->values()->all();
     }
 }
