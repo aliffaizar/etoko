@@ -55,6 +55,37 @@ return [
     ],
 
     /*
+     * Human readable names for the permission groups above, used as the section
+     * headings of the Role & Permission screen (P1-E1-T5). A group without a
+     * label here falls back to its key.
+     */
+    'permission_group_labels' => [
+        'dashboard' => 'Dashboard',
+        'products' => 'Produk',
+        'categories' => 'Kategori',
+        'branch_prices' => 'Harga Khusus Cabang',
+        'branches' => 'Cabang',
+        'warehouses' => 'Gudang',
+        'users' => 'Pengguna',
+        'roles' => 'Role & Permission',
+        'customers' => 'Pelanggan',
+        'stocks' => 'Stok',
+        'stock_entries' => 'Barang Masuk',
+        'stock_issues' => 'Barang Keluar',
+        'stock_transfers' => 'Transfer Stok',
+        'stock_opnames' => 'Stok Opname',
+        'orders' => 'Pesanan',
+        'payments' => 'Pembayaran',
+        'shipments' => 'Pengiriman',
+        'returns' => 'Retur & Refund',
+        'marketing' => 'Marketing',
+        'reports' => 'Laporan',
+        'settings' => 'Pengaturan',
+        'audit' => 'Audit Log',
+        'pos' => 'POS / Kasir',
+    ],
+
+    /*
      * Permissions granted to each role on a fresh install. Super Admin is omitted
      * on purpose: it receives every permission, and also bypasses the gate.
      */

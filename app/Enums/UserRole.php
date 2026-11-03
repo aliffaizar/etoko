@@ -53,6 +53,25 @@ enum UserRole: string
     }
 
     /**
+     * Staff roles a user holding this role may grant to someone else.
+     *
+     * A Super Admin is the only role that can create another Super Admin, and a
+     * branch role may only ever create branch roles — that keeps a branch admin
+     * from promoting themselves out of their own branch (docs/04-rbac.md).
+     *
+     * @return array<int, self>
+     */
+    public function grantableRoles(): array
+    {
+        return match ($this) {
+            self::SuperAdmin => self::staffRoles(),
+            self::AdminPusat => [self::AdminPusat, self::AdminCabang, self::StaffGudang, self::Kasir],
+            self::AdminCabang => [self::AdminCabang, self::StaffGudang, self::Kasir],
+            self::StaffGudang, self::Kasir, self::Customer => [],
+        };
+    }
+
+    /**
      * Roles that may sign in to a management panel.
      *
      * @return array<int, self>
@@ -67,9 +86,28 @@ enum UserRole: string
      */
     public static function options(): array
     {
-        return array_map(
+        return self::optionsFor(self::cases());
+    }
+
+    /**
+     * Select options for a specific set of roles, in the order given.
+     *
+     * @param  array<int, self>  $roles
+     * @return array<int, array{value: string, label: string}>
+     */
+    public static function optionsFor(array $roles): array
+    {
+        return array_values(array_map(
             fn (self $role): array => ['value' => $role->value, 'label' => $role->label()],
-            self::cases(),
-        );
+            $roles,
+        ));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function staffRoleValues(): array
+    {
+        return array_map(fn (self $role): string => $role->value, self::staffRoles());
     }
 }
