@@ -2,6 +2,8 @@
 
 namespace App\Enums;
 
+use Illuminate\Support\Str;
+
 enum UserRole: string
 {
     case SuperAdmin = 'super_admin';
@@ -49,6 +51,30 @@ enum UserRole: string
             self::AdminCabang, self::StaffGudang => 'branch.dashboard',
             self::Kasir => 'pos.index',
             self::Customer => 'home',
+        };
+    }
+
+    /**
+     * Whether a URL path lies in an area this role may enter.
+     *
+     * Only the leading panel segment is weighed; the routes themselves keep
+     * their own permission checks (`can:` middleware and policies). This is a
+     * safety net for redirects, so a saved "intended" URL never overrides the
+     * role's landing page with a page the role cannot open at all.
+     *
+     * A branch admin manages their own staff at `/admin/users`, which is why
+     * the central prefix is open to them (docs/04-rbac.md).
+     */
+    public function mayEnter(string $path): bool
+    {
+        if ($this->isCentral()) {
+            return true;
+        }
+
+        return match (Str::before(ltrim($path, '/'), '/')) {
+            'admin' => $this === self::AdminCabang,
+            'branch', 'pos' => $this->requiresBranch(),
+            default => true,
         };
     }
 
