@@ -54,9 +54,26 @@ trait Auditable
     /**
      * Attributes that must never reach the audit log.
      *
+     * Override this on a model to keep its own noisy columns out, spreading
+     * `auditExcludeDefaults()` so the secrets below stay excluded:
+     * `return [...$this->auditExcludeDefaults(), 'view_count'];`
+     *
      * @return array<int, string>
      */
     protected function auditExclude(): array
+    {
+        return $this->auditExcludeDefaults();
+    }
+
+    /**
+     * The exclusions every auditable model needs, whatever else it adds.
+     *
+     * Kept separate from `auditExclude()` because a trait method has no
+     * `parent::` to fall back to once a model overrides it.
+     *
+     * @return array<int, string>
+     */
+    protected function auditExcludeDefaults(): array
     {
         return ['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes', 'updated_at'];
     }

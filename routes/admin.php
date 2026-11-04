@@ -4,7 +4,9 @@ use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\BranchOperatingHourController;
 use App\Http\Controllers\Admin\BranchStaffController;
 use App\Http\Controllers\Admin\BranchWarehouseController;
+use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -125,6 +127,66 @@ Route::middleware(['auth', 'verified', 'branch'])
                     ->middleware('can:warehouses.manage')
                     ->name('destroy');
             });
+        });
+
+        Route::prefix('products')->name('products.')->group(function () {
+            Route::get('/', [ProductController::class, 'index'])
+                ->middleware('can:products.view')
+                ->name('index');
+
+            Route::get('create', [ProductController::class, 'create'])
+                ->middleware('can:products.create')
+                ->name('create');
+
+            Route::post('/', [ProductController::class, 'store'])
+                ->middleware('can:products.create')
+                ->name('store');
+
+            Route::get('{product}/edit', [ProductController::class, 'edit'])
+                ->middleware('can:products.update')
+                ->name('edit');
+
+            Route::put('{product}', [ProductController::class, 'update'])
+                ->middleware('can:products.update')
+                ->name('update');
+
+            Route::patch('{product}/status', [ProductController::class, 'updateStatus'])
+                ->middleware('can:products.update')
+                ->name('status.update');
+
+            Route::delete('{product}', [ProductController::class, 'destroy'])
+                ->middleware('can:products.delete')
+                ->name('destroy');
+        });
+
+        Route::prefix('categories')->name('categories.')->group(function () {
+            Route::get('/', [CategoryController::class, 'index'])
+                ->middleware('can:categories.view')
+                ->name('index');
+
+            Route::get('create', [CategoryController::class, 'create'])
+                ->middleware('can:categories.create')
+                ->name('create');
+
+            Route::post('/', [CategoryController::class, 'store'])
+                ->middleware('can:categories.create')
+                ->name('store');
+
+            Route::get('{category}/edit', [CategoryController::class, 'edit'])
+                ->middleware('can:categories.update')
+                ->name('edit');
+
+            Route::put('{category}', [CategoryController::class, 'update'])
+                ->middleware('can:categories.update')
+                ->name('update');
+
+            Route::patch('{category}/status', [CategoryController::class, 'updateStatus'])
+                ->middleware('can:categories.update')
+                ->name('status.update');
+
+            Route::delete('{category}', [CategoryController::class, 'destroy'])
+                ->middleware('can:categories.delete')
+                ->name('destroy');
         });
 
         Route::prefix('roles')->name('roles.')->group(function () {

@@ -1,4 +1,4 @@
-import { LayoutGrid, Store, Users } from 'lucide-react';
+import { FolderTree, LayoutGrid, Package, Store, Users } from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
@@ -6,6 +6,8 @@ import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { dashboard } from '@/routes/branch';
 import { edit as branchEdit } from '@/routes/admin/branches';
+import { index as categoriesIndex } from '@/routes/admin/categories';
+import { index as productsIndex } from '@/routes/admin/products';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
 
@@ -36,6 +38,29 @@ function useBranchNavGroups(): PanelNavGroup[] {
             ],
         },
     ];
+
+    // Products and categories are central master data every branch sells from
+    // (BR-1), so the branch panel links to the same read-only screens rather
+    // than hiding them; each item's permission decides whether it appears.
+    // Warehouse staff and cashiers hold `products.view` but not
+    // `categories.view`, so they see one item here and not the other.
+    groups.push({
+        label: 'Katalog',
+        items: [
+            {
+                title: 'Produk',
+                href: productsIndex(),
+                icon: Package,
+                permission: 'products.view',
+            },
+            {
+                title: 'Kategori',
+                href: categoriesIndex(),
+                icon: FolderTree,
+                permission: 'categories.view',
+            },
+        ],
+    });
 
     if (auth?.branch) {
         groups.push({

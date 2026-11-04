@@ -4,8 +4,8 @@ namespace App\Actions\Branch;
 
 use App\Models\Branch;
 use App\Models\BranchOperatingHour;
+use App\Support\UniqueSlug;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Creates a branch together with the records it cannot operate without.
@@ -30,7 +30,7 @@ final class CreateBranch
         return DB::transaction(function () use ($attributes): Branch {
             $branch = Branch::create([
                 ...$attributes,
-                'slug' => $attributes['slug'] ?? $this->uniqueSlug((string) $attributes['name']),
+                'slug' => $attributes['slug'] ?? UniqueSlug::from((string) $attributes['name'], Branch::withTrashed()),
                 // The first branch becomes the storefront fallback.
                 'is_default' => $attributes['is_default'] ?? ! Branch::where('is_default', true)->exists(),
             ]);
@@ -62,18 +62,5 @@ final class CreateBranch
             'closes_at' => $day === 0 ? null : BranchOperatingHour::normalizeTime(self::DEFAULT_CLOSES_AT),
             'is_closed' => $day === 0,
         ], range(0, 6));
-    }
-
-    private function uniqueSlug(string $name): string
-    {
-        $base = Str::slug($name);
-        $slug = $base;
-        $suffix = 1;
-
-        while (Branch::withTrashed()->where('slug', $slug)->exists()) {
-            $slug = $base.'-'.(++$suffix);
-        }
-
-        return $slug;
     }
 }

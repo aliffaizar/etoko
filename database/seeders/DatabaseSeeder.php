@@ -13,7 +13,8 @@ class DatabaseSeeder extends Seeder
      * Seed the application's database.
      *
      * RolePermissionSeeder is reference data every environment needs;
-     * DemoDataSeeder is sample content and is skipped in production.
+     * DemoDataSeeder and CatalogDemoSeeder are sample content and are skipped
+     * in production.
      */
     public function run(): void
     {
@@ -21,6 +22,7 @@ class DatabaseSeeder extends Seeder
 
         if (! app()->isProduction()) {
             $this->call(DemoDataSeeder::class);
+            $this->call(CatalogDemoSeeder::class);
         }
     }
 }

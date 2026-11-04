@@ -1,10 +1,19 @@
-import { LayoutGrid, ShieldCheck, Store, Users } from 'lucide-react';
+import {
+    FolderTree,
+    LayoutGrid,
+    Package,
+    ShieldCheck,
+    Store,
+    Users,
+} from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { dashboard } from '@/routes/admin';
 import { index as branchesIndex } from '@/routes/admin/branches';
+import { index as categoriesIndex } from '@/routes/admin/categories';
+import { index as productsIndex } from '@/routes/admin/products';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
@@ -31,6 +40,18 @@ const navGroups: PanelNavGroup[] = [
     {
         label: 'Master Data',
         items: [
+            {
+                title: 'Produk',
+                href: productsIndex(),
+                icon: Package,
+                permission: 'products.view',
+            },
+            {
+                title: 'Kategori',
+                href: categoriesIndex(),
+                icon: FolderTree,
+                permission: 'categories.view',
+            },
             {
                 title: 'Cabang',
                 href: branchesIndex(),
