@@ -22,6 +22,11 @@ export type BranchListItem = {
         update: boolean;
         delete: boolean;
     };
+    /**
+     * Why deletion is refused for this branch, for a tooltip on the disabled
+     * action. Null when it is deletable, or when the actor may not delete at all.
+     */
+    delete_blocked_reason: string | null;
 };
 
 /** The branch being edited on `/admin/branches/{branch}/edit`. */
@@ -104,6 +109,8 @@ export type AssignableStaffOption = {
 export type BranchAbilities = {
     update: boolean;
     delete: boolean;
+    /** Why deletion is refused; see `BranchListItem.delete_blocked_reason`. */
+    delete_blocked_reason: string | null;
     manage_warehouses: boolean;
     assign_staff: boolean;
     create_staff: boolean;

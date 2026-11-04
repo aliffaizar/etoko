@@ -50,6 +50,10 @@ class HandleInertiaRequests extends Middleware
                 'role' => $user instanceof User ? $user->appRole()?->value : null,
                 'roleLabel' => $user instanceof User ? $user->appRole()?->label() : null,
                 'isCentral' => $user instanceof User && $user->isCentral(),
+                // Whether the account belongs to a management panel, which
+                // decides the shell the settings screens are drawn in and
+                // whether self-deletion is offered at all (ProfileController).
+                'isStaff' => $user instanceof User && $user->isStaff(),
                 'branch' => $user instanceof User && $user->branch !== null
                     ? ['id' => $user->branch->id, 'name' => $user->branch->name, 'code' => $user->branch->code]
                     : null,

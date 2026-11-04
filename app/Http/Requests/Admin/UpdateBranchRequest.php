@@ -70,7 +70,8 @@ class UpdateBranchRequest extends FormRequest
     /**
      * The storefront needs exactly one usable fallback branch at all times, so
      * the flag can only move to another branch, never simply be dropped, and
-     * the branch that holds it has to stay open for business.
+     * the branch that holds it has to stay open for business — which means a
+     * status that still accepts orders, not merely "not inactive".
      */
     private function protectTheStorefrontFallback(Validator $validator): void
     {
@@ -85,10 +86,13 @@ class UpdateBranchRequest extends FormRequest
             );
         }
 
-        if ($wantsDefault && $status === BranchStatus::Inactive) {
+        // Asked as "does this status still take orders?" rather than compared
+        // against one status, so a status added to BranchStatus later is guarded
+        // too. Maintenance does not accept orders either (ADR-017).
+        if ($wantsDefault && $status !== null && ! $status->acceptsOrders()) {
             $validator->errors()->add(
                 'status',
-                'Cabang utama tidak boleh dinonaktifkan. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.',
+                'Cabang utama harus berstatus Aktif. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.',
             );
         }
     }

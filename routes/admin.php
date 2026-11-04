@@ -23,9 +23,13 @@ use Illuminate\Support\Facades\Route;
 | narrowed to their branch and every single-record route passes through
 | UserPolicy or BranchPolicy (BR-3).
 |
+| The `branch` middleware refuses non-staff outright and refuses a branch-bound
+| account that has no branch assigned, so the narrowing below always has a
+| branch to narrow by.
+|
 */
 
-Route::middleware(['auth', 'verified'])
+Route::middleware(['auth', 'verified', 'branch'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {

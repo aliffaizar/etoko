@@ -8,10 +8,15 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Guards the branch panel.
+ * Guards the management panels.
  *
  * Central staff may enter to supervise any branch, but a branch-bound user
  * without an assigned branch is refused rather than silently shown nothing.
+ *
+ * It sits in front of `/branch/*` and `/admin/*` alike. A branch-bound account
+ * with no `branch_id` is a state the forms prevent, but if one ever reached the
+ * central panel the BR-3 narrowing there would have nothing to narrow by, so
+ * the state is refused at the door instead of being relied on not to happen.
  */
 class EnsureBranchAccess
 {

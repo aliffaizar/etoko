@@ -106,7 +106,7 @@ class UserController extends Controller
                 'last_login_at' => $user->last_login_at?->toIso8601String(),
                 'created_at' => $user->created_at?->toIso8601String(),
             ],
-            'options' => $this->formOptions(),
+            'options' => $this->formOptions($user),
             'can' => [
                 'delete' => request()->user()?->can('delete', $user) ?? false,
             ],
@@ -225,7 +225,12 @@ class UserController extends Controller
             ->with(['branch:id,name,code', 'roles:id,name'])
             ->whereHas('roles', fn (Builder $roles) => $roles->whereIn('name', UserRole::staffRoleValues()))
             // BR-3: a branch-bound actor never sees staff of another branch.
-            ->when(! $actor->isCentral(), fn (Builder $query) => $query->where('branch_id', $actor->branch_id))
+            // `whereNotNull` is what makes it fail closed: a bare
+            // `where('branch_id', null)` compiles to `branch_id is null` and
+            // would list every central account instead of none (BUG-07).
+            ->when(! $actor->isCentral(), fn (Builder $query) => $query
+                ->whereNotNull('branch_id')
+                ->where('branch_id', $actor->branch_id))
             ->when($filters['search'] !== '', fn (Builder $query) => $query->where(
                 fn (Builder $match) => $match
                     ->where('name', 'like', "%{$filters['search']}%")
@@ -283,14 +288,20 @@ class UserController extends Controller
     /**
      * Options for the create and edit forms, bounded by what the actor may grant.
      *
+     * The account being edited keeps its own branch in the list whatever that
+     * branch's status is, matching what `ValidatesStaffAssignment` accepts: the
+     * dropdown would otherwise come up empty for staff of a branch that is
+     * closed or under maintenance.
+     *
      * @return array{roles: array<int, array{value: string, label: string, requires_branch: bool}>, branches: array<int, array{value: int, label: string}>, lockedBranchId: int|null}
      */
-    private function formOptions(): array
+    private function formOptions(?User $staff = null): array
     {
         /** @var User $actor */
         $actor = request()->user();
 
         $grantable = $actor->appRole()?->grantableRoles() ?? [];
+        $currentBranchId = $staff?->branch_id;
 
         return [
             'roles' => array_values(array_map(fn (UserRole $role): array => [
@@ -299,13 +310,17 @@ class UserController extends Controller
                 'requires_branch' => $role->requiresBranch(),
             ], $grantable)),
             'branches' => Branch::query()
-                ->where('status', BranchStatus::Active)
+                ->where(fn (Builder $selectable) => $selectable
+                    ->where('status', BranchStatus::Active)
+                    ->when($currentBranchId !== null, fn (Builder $query) => $query->orWhereKey($currentBranchId)))
                 ->when(! $actor->isCentral(), fn (Builder $query) => $query->whereKey($actor->branch_id))
                 ->ordered()
-                ->get(['id', 'name', 'code'])
+                ->get(['id', 'name', 'code', 'status'])
                 ->map(fn (Branch $branch): array => [
                     'value' => $branch->id,
-                    'label' => "{$branch->name} ({$branch->code})",
+                    'label' => $branch->status->acceptsOrders()
+                        ? "{$branch->name} ({$branch->code})"
+                        : "{$branch->name} ({$branch->code}) — {$branch->status->label()}",
                 ])
                 ->all(),
             // A branch admin may only ever assign their own branch, so the form

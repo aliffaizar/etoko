@@ -301,13 +301,14 @@ it('fills in missing days as closed so the week is always complete', function ()
 });
 
 it('updates a branch', function () {
-    $branch = Branch::factory()->default()->create(['code' => 'JKT-05']);
+    // Not the default branch: that one may not leave the Active status at all
+    // (ADR-017), which the two tests below cover.
+    $branch = Branch::factory()->create(['code' => 'JKT-05']);
 
     $this->actingAs(User::factory()->adminPusat()->create())
         ->put(route('admin.branches.update', $branch), branchPayload([
             'slug' => 'cabang-jakarta-selatan',
             'name' => 'Cabang Jaksel',
-            'is_default' => true,
             'status' => BranchStatus::Maintenance->value,
         ]))
         ->assertRedirect(route('admin.branches.edit', $branch));
@@ -445,4 +446,81 @@ it('records branch changes in the audit log', function () {
         ->patch(route('admin.branches.status.update', $branch), ['status' => BranchStatus::Maintenance->value]);
 
     expect($branch->auditLogs()->where('event', 'updated')->exists())->toBeTrue();
+});
+
+/*
+ * Review findings of 2026-11-04 (docs/bugs/2026-11-04-review-p1-e1-e2.md).
+ */
+
+it('keeps the storefront fallback branch open for business', function (BranchStatus $status) {
+    // BUG-03: both guards compared against `Inactive` only, but maintenance
+    // does not accept orders either (BranchStatus::acceptsOrders).
+    $branch = Branch::factory()->default()->create(['status' => BranchStatus::Active]);
+    $actor = User::factory()->superAdmin()->create();
+
+    $this->actingAs($actor)
+        ->patch(route('admin.branches.status.update', $branch), ['status' => $status->value])
+        ->assertSessionHasErrors('status');
+
+    $this->actingAs($actor)
+        ->put(route('admin.branches.update', $branch), branchPayload([
+            'code' => $branch->code,
+            'slug' => $branch->slug,
+            'is_default' => true,
+            'status' => $status->value,
+        ]))
+        ->assertSessionHasErrors('status');
+
+    expect($branch->refresh()->status)->toBe(BranchStatus::Active);
+})->with([
+    'inactive' => [BranchStatus::Inactive],
+    'maintenance' => [BranchStatus::Maintenance],
+]);
+
+it('lets a branch that is not the fallback go into maintenance', function () {
+    $branch = Branch::factory()->create(['status' => BranchStatus::Active]);
+
+    $this->actingAs(User::factory()->superAdmin()->create())
+        ->patch(route('admin.branches.status.update', $branch), ['status' => BranchStatus::Maintenance->value])
+        ->assertSessionHasNoErrors();
+
+    expect($branch->refresh()->status)->toBe(BranchStatus::Maintenance);
+});
+
+it('does not offer deletion of a branch the server would refuse', function () {
+    // BUG-05: `can.delete` only weighed `is_default`, so the listing offered
+    // "Hapus" for every branch that still had staff and the attempt died in a
+    // raw error modal.
+    $withStaff = Branch::factory()->create(['name' => 'Cabang Berstaf', 'sort_order' => 1]);
+    User::factory()->kasir($withStaff)->create();
+    Branch::factory()->create(['name' => 'Cabang Kosong', 'sort_order' => 2]);
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->get(route('admin.branches.index'))
+        ->assertInertia(fn ($page) => $page
+            ->where('branches.data.0.can.delete', false)
+            ->where('branches.data.0.delete_blocked_reason', 'Cabang ini masih memiliki 1 akun staf. Pindahkan atau hapus akun tersebut terlebih dahulu.')
+            ->where('branches.data.1.can.delete', true)
+            ->where('branches.data.1.delete_blocked_reason', null));
+});
+
+it('explains on the branch screen why deletion is refused', function () {
+    $branch = Branch::factory()->default()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->get(route('admin.branches.edit', $branch))
+        ->assertInertia(fn ($page) => $page
+            ->where('can.delete', false)
+            ->where('can.delete_blocked_reason', 'Cabang utama tidak dapat dihapus. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.'));
+});
+
+it('leaves the blocked reason out for an actor who may not delete branches', function () {
+    $branch = Branch::factory()->create();
+    User::factory()->kasir($branch)->create();
+
+    $this->actingAs(User::factory()->adminCabang($branch)->create())
+        ->get(route('admin.branches.index'))
+        ->assertInertia(fn ($page) => $page
+            ->where('branches.data.0.can.delete', false)
+            ->where('branches.data.0.delete_blocked_reason', null));
 });

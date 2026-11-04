@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\BranchStatus;
 use App\Enums\UserRole;
 use App\Models\Branch;
 use App\Models\User;
@@ -377,4 +378,83 @@ it('forbids a branch admin from deleting staff, even their own', function () {
         ->assertForbidden();
 
     expect(User::whereKey($user->id)->exists())->toBeTrue();
+});
+
+/*
+ * Review findings of 2026-11-04 (docs/bugs/2026-11-04-review-p1-e1-e2.md).
+ */
+
+it('still edits staff of a branch that is no longer active', function (BranchStatus $status) {
+    $actor = User::factory()->adminPusat()->create();
+    $branch = Branch::factory()->create(['status' => $status]);
+    $user = User::factory()->kasir($branch)->create(['name' => 'Nama Lama', 'is_active' => true]);
+
+    // BUG-02: the edit form resubmits the account's own branch, so limiting
+    // `branch_id` to active branches used to refuse every other field with it.
+    $this->actingAs($actor)
+        ->put(route('admin.users.update', $user), [
+            'name' => 'Nama Baru',
+            'email' => $user->email,
+            'phone' => '081299998888',
+            'role' => UserRole::Kasir->value,
+            'branch_id' => $branch->id,
+            'is_active' => '0',
+        ])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect(route('admin.users.edit', $user));
+
+    expect($user->refresh())
+        ->name->toBe('Nama Baru')
+        ->is_active->toBeFalse()
+        ->branch_id->toBe($branch->id);
+})->with([
+    'inactive branch' => [BranchStatus::Inactive],
+    'branch under maintenance' => [BranchStatus::Maintenance],
+]);
+
+it('offers the branch an account already sits in even when it is closed', function () {
+    $actor = User::factory()->superAdmin()->create();
+    $branch = Branch::factory()->create(['name' => 'Cabang Tutup', 'status' => BranchStatus::Inactive]);
+    $user = User::factory()->kasir($branch)->create();
+
+    // BUG-02: the dropdown came up empty, so the screen could not even show
+    // where the account was stationed.
+    $this->actingAs($actor)
+        ->get(route('admin.users.edit', $user))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('options.branches', 1)
+            ->where('options.branches.0.value', $branch->id)
+            ->where('options.branches.0.label', 'Cabang Tutup ('.$branch->code.') — Tidak Aktif'));
+});
+
+it('refuses to move an account into a branch that is not active', function () {
+    $actor = User::factory()->adminPusat()->create();
+    $closed = Branch::factory()->create(['status' => BranchStatus::Inactive]);
+    $user = User::factory()->kasir()->create();
+
+    $this->actingAs($actor)
+        ->put(route('admin.users.update', $user), [
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => UserRole::Kasir->value,
+            'branch_id' => $closed->id,
+            'is_active' => '1',
+        ])
+        ->assertSessionHasErrors('branch_id');
+
+    expect($user->refresh()->branch_id)->not->toBe($closed->id);
+});
+
+it('refuses a branch role that has no branch instead of listing central staff', function () {
+    // BUG-07: `where('branch_id', null)` compiles to `branch_id is null`, which
+    // would have turned "only my branch" into "only central accounts". The
+    // state is prevented by the forms, so it is refused at the door as well.
+    $actor = User::factory()->adminCabang()->create();
+    $actor->forceFill(['branch_id' => null])->save();
+
+    User::factory()->adminPusat()->create();
+
+    $this->actingAs($actor)->get(route('admin.users.index'))->assertForbidden();
+    $this->actingAs($actor)->get(route('admin.branches.index'))->assertForbidden();
 });

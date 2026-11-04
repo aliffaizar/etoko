@@ -152,9 +152,25 @@ export default function BranchesEdit({
                     />
 
                     {can.delete && <DeleteBranchCard branch={branch} />}
+
+                    {/* The same card, explaining why the button is not there. */}
+                    {!can.delete && can.delete_blocked_reason && (
+                        <DeleteBlockedCard reason={can.delete_blocked_reason} />
+                    )}
                 </div>
             </div>
         </>
+    );
+}
+
+function DeleteBlockedCard({ reason }: { reason: string }) {
+    return (
+        <Card className="border-destructive/40">
+            <CardHeader>
+                <CardTitle>Hapus cabang</CardTitle>
+                <CardDescription>{reason}</CardDescription>
+            </CardHeader>
+        </Card>
     );
 }
 

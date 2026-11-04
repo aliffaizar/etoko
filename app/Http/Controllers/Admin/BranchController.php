@@ -135,27 +135,17 @@ class BranchController extends Controller
     /**
      * Soft deletes the branch, keeping its warehouses and history intact.
      *
-     * Two things are refused outright: deleting the storefront's fallback
-     * branch, and deleting a branch that still has staff — their accounts would
-     * be left pointing at a branch nobody can open.
+     * What is refused outright is listed by `Branch::deletionBlockedReason()`,
+     * which the listing and the branch screen also read for their `can.delete`
+     * flag, so the interface never offers a deletion this method will refuse.
      */
     public function destroy(Branch $branch): RedirectResponse
     {
         $this->authorize('delete', $branch);
 
-        abort_if(
-            $branch->is_default,
-            403,
-            'Cabang utama tidak dapat dihapus. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.',
-        );
+        $blocked = $branch->deletionBlockedReason();
 
-        $staffCount = $branch->users()->count();
-
-        abort_if(
-            $staffCount > 0,
-            403,
-            "Cabang ini masih memiliki {$staffCount} akun staf. Pindahkan atau hapus akun tersebut terlebih dahulu.",
-        );
+        abort_if($blocked !== null, 403, (string) $blocked);
 
         $branch->delete();
 
@@ -190,8 +180,13 @@ class BranchController extends Controller
                 'staff_count' => (int) $branch->getAttribute('users_count'),
                 'can' => [
                     'update' => $actor->can('update', $branch),
-                    'delete' => $actor->can('delete', $branch) && ! $branch->is_default,
+                    'delete' => $actor->can('delete', $branch) && $branch->isDeletable(),
                 ],
+                // Why deletion is off, for a tooltip on the disabled action.
+                // Null when the actor simply may not delete branches at all.
+                'delete_blocked_reason' => $actor->can('delete', $branch)
+                    ? $branch->deletionBlockedReason()
+                    : null,
             ]);
     }
 
@@ -355,13 +350,16 @@ class BranchController extends Controller
     }
 
     /**
-     * @return array{update: bool, delete: bool, manage_warehouses: bool, assign_staff: bool, create_staff: bool}
+     * @return array{update: bool, delete: bool, delete_blocked_reason: string|null, manage_warehouses: bool, assign_staff: bool, create_staff: bool}
      */
     private function abilities(User $actor, Branch $branch): array
     {
         return [
             'update' => $actor->can('update', $branch),
-            'delete' => $actor->can('delete', $branch) && ! $branch->is_default,
+            'delete' => $actor->can('delete', $branch) && $branch->isDeletable(),
+            'delete_blocked_reason' => $actor->can('delete', $branch)
+                ? $branch->deletionBlockedReason()
+                : null,
             'manage_warehouses' => $actor->can('manageWarehouses', $branch),
             'assign_staff' => $actor->can('assignStaff', $branch),
             'create_staff' => $actor->can('create', User::class),

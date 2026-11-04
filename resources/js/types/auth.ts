@@ -29,6 +29,8 @@ export type Auth = {
     role: UserRole | null;
     roleLabel: string | null;
     isCentral: boolean;
+    /** Whether the account signs in to a management panel rather than the shop. */
+    isStaff: boolean;
     branch: AuthBranch | null;
     permissions: string[];
 };

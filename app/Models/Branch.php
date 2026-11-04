@@ -127,6 +127,57 @@ class Branch extends Model
     }
 
     /**
+     * The number of staff accounts stationed at this branch.
+     *
+     * Reuses the `users_count` of a `withCount(['users'])` listing when it is
+     * there, so drawing the branch table does not cost one query per row.
+     */
+    public function staffCount(): int
+    {
+        $counted = $this->getAttribute('users_count');
+
+        if ($counted !== null) {
+            return (int) $counted;
+        }
+
+        return $this->relationLoaded('users') ? $this->users->count() : $this->users()->count();
+    }
+
+    /**
+     * Whether the branch may be deleted.
+     *
+     * One predicate for the controller's guard and for the capability flag the
+     * branch screens read, so the interface can never offer a deletion the
+     * server is going to refuse (BUG-05).
+     */
+    public function isDeletable(): bool
+    {
+        return $this->deletionBlockedReason() === null;
+    }
+
+    /**
+     * Why this branch may not be deleted, or null when it may be.
+     *
+     * The storefront needs its fallback branch to exist (ADR-017), and a branch
+     * that still has staff would leave their accounts pointing at a branch
+     * nobody can open.
+     */
+    public function deletionBlockedReason(): ?string
+    {
+        if ($this->is_default) {
+            return 'Cabang utama tidak dapat dihapus. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.';
+        }
+
+        $staffCount = $this->staffCount();
+
+        if ($staffCount > 0) {
+            return "Cabang ini masih memiliki {$staffCount} akun staf. Pindahkan atau hapus akun tersebut terlebih dahulu.";
+        }
+
+        return null;
+    }
+
+    /**
      * @param  Builder<static>  $query
      * @return Builder<static>
      */

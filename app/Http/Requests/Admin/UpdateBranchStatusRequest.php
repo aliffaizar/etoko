@@ -12,7 +12,7 @@ use Illuminate\Validation\Validator;
  * The quick status change offered on the branch listing.
  *
  * It carries the same guard as the full edit form: the storefront's fallback
- * branch may not be switched off.
+ * branch may not be moved to a status that stops accepting orders.
  */
 class UpdateBranchStatusRequest extends FormRequest
 {
@@ -40,10 +40,14 @@ class UpdateBranchStatusRequest extends FormRequest
             /** @var Branch $branch */
             $branch = $this->route('branch');
 
-            if ($branch->is_default && BranchStatus::tryFrom((string) $this->input('status')) === BranchStatus::Inactive) {
+            $status = BranchStatus::tryFrom((string) $this->input('status'));
+
+            // Same question as UpdateBranchRequest asks: the fallback branch has
+            // to keep accepting orders, so maintenance is refused as well.
+            if ($branch->is_default && $status !== null && ! $status->acceptsOrders()) {
                 $validator->errors()->add(
                     'status',
-                    'Cabang utama tidak boleh dinonaktifkan. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.',
+                    'Cabang utama harus berstatus Aktif. Tunjuk cabang lain sebagai cabang utama terlebih dahulu.',
                 );
             }
         }];

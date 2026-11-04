@@ -279,7 +279,11 @@ function RowActions({
     statuses: BranchStatusOption[];
     onRequestDelete: () => void;
 }) {
-    if (!branch.can.update && !branch.can.delete) {
+    if (
+        !branch.can.update &&
+        !branch.can.delete &&
+        !branch.delete_blocked_reason
+    ) {
         return null;
     }
 
@@ -351,6 +355,25 @@ function RowActions({
                             <Trash2 aria-hidden />
                             Hapus
                         </DropdownMenuItem>
+                    </>
+                )}
+
+                {/* Shown disabled rather than hidden, so the reason the server
+                    would refuse is visible instead of being discovered after
+                    the confirmation dialog. */}
+                {!branch.can.delete && branch.delete_blocked_reason && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            disabled
+                            title={branch.delete_blocked_reason}
+                        >
+                            <Trash2 aria-hidden />
+                            Hapus
+                        </DropdownMenuItem>
+                        <p className="px-2 py-1 text-xs text-muted-foreground">
+                            {branch.delete_blocked_reason}
+                        </p>
                     </>
                 )}
             </DropdownMenuContent>
