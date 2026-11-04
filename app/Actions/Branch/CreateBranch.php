@@ -3,6 +3,7 @@
 namespace App\Actions\Branch;
 
 use App\Models\Branch;
+use App\Models\BranchOperatingHour;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -16,6 +17,10 @@ use Illuminate\Support\Str;
 final class CreateBranch
 {
     public const DEFAULT_WAREHOUSE_CODE = 'WH-01';
+
+    public const DEFAULT_OPENS_AT = '08:00';
+
+    public const DEFAULT_CLOSES_AT = '17:00';
 
     /**
      * @param  array<string, mixed>  $attributes
@@ -53,8 +58,8 @@ final class CreateBranch
     {
         return array_map(fn (int $day): array => [
             'day_of_week' => $day,
-            'opens_at' => $day === 0 ? null : '08:00',
-            'closes_at' => $day === 0 ? null : '17:00',
+            'opens_at' => $day === 0 ? null : BranchOperatingHour::normalizeTime(self::DEFAULT_OPENS_AT),
+            'closes_at' => $day === 0 ? null : BranchOperatingHour::normalizeTime(self::DEFAULT_CLOSES_AT),
             'is_closed' => $day === 0,
         ], range(0, 6));
     }

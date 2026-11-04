@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\Auditable;
 use App\Concerns\BelongsToBranch;
 use Database\Factories\WarehouseFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -26,7 +27,7 @@ use Illuminate\Support\Carbon;
 class Warehouse extends Model
 {
     /** @use HasFactory<WarehouseFactory> */
-    use BelongsToBranch, HasFactory;
+    use Auditable, BelongsToBranch, HasFactory;
 
     /**
      * @return array<string, string>

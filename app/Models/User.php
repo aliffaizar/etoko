@@ -136,4 +136,30 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     {
         return $query->whereHas('roles', fn (Builder $roles) => $roles->where('name', $role->value));
     }
+
+    /**
+     * Staff accounts that could be moved into the given branch (P1-E2-T5).
+     *
+     * Only roles that are bound to a branch qualify, because moving a central
+     * account into a branch would mean changing what the account is. Accounts
+     * already in the branch are left out, and so is every Super Admin, who is
+     * never branch-bound.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    #[Scope]
+    protected function assignableToBranch(Builder $query, Branch $branch): Builder
+    {
+        $branchRoles = array_map(
+            fn (UserRole $role): string => $role->value,
+            array_filter(UserRole::staffRoles(), fn (UserRole $role): bool => $role->requiresBranch()),
+        );
+
+        return $query
+            ->whereHas('roles', fn (Builder $roles) => $roles->whereIn('name', $branchRoles))
+            ->where(fn (Builder $outside) => $outside
+                ->whereNull('branch_id')
+                ->orWhere('branch_id', '!=', $branch->getKey()));
+    }
 }

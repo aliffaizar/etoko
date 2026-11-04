@@ -18,6 +18,7 @@ use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -49,13 +50,28 @@ class UserController extends Controller
         ]);
     }
 
-    public function create(): Response
+    public function create(Request $request): Response
     {
         $this->authorize('create', User::class);
 
+        $options = $this->formOptions();
+
         return Inertia::render('admin/users/create', [
-            'options' => $this->formOptions(),
+            'options' => $options,
+            // The branch screen links here to staff a specific branch
+            // (P1-E2-T5); an id the actor may not assign is ignored.
+            'prefill' => ['branch_id' => $this->prefilledBranchId($request, $options['branches'])],
         ]);
+    }
+
+    /**
+     * @param  array<int, array{value: int, label: string}>  $branches
+     */
+    private function prefilledBranchId(Request $request, array $branches): ?int
+    {
+        $branchId = $request->integer('branch_id');
+
+        return in_array($branchId, array_column($branches, 'value'), strict: true) ? $branchId : null;
     }
 
     public function store(StoreUserRequest $request, CreateUser $createUser): RedirectResponse

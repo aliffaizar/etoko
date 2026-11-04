@@ -9,9 +9,11 @@ import type { StaffFormOptions } from '@/types';
 
 type UsersCreateProps = {
     options: StaffFormOptions;
+    /** Set when the branch screen linked here to staff a specific branch. */
+    prefill: { branch_id: number | null };
 };
 
-export default function UsersCreate({ options }: UsersCreateProps) {
+export default function UsersCreate({ options, prefill }: UsersCreateProps) {
     return (
         <>
             <Head title="Tambah Pengguna" />
@@ -27,6 +29,7 @@ export default function UsersCreate({ options }: UsersCreateProps) {
                         <UserForm
                             action={UserController.store.form()}
                             options={options}
+                            prefilledBranchId={prefill.branch_id}
                             submitLabel="Simpan Pengguna"
                             secondaryAction={
                                 <Button variant="ghost" asChild>

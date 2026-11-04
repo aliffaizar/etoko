@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\BranchController;
+use App\Http\Controllers\Admin\BranchOperatingHourController;
+use App\Http\Controllers\Admin\BranchStaffController;
+use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
@@ -13,9 +17,11 @@ use Illuminate\Support\Facades\Route;
 | Routes for Super Admin and Admin Pusat. Every route carries its own
 | permission check; see docs/04-rbac.md for the matrix.
 |
-| A branch admin holds `users.view/create/update` for their own staff, so the
-| user routes are reachable by them as well. The listing is narrowed to their
-| branch and every single-account route passes through UserPolicy (BR-3).
+| A branch admin holds `users.view/create/update` for their own staff and
+| `branches.view/update` plus `warehouses.manage` for their own branch, so the
+| user and branch routes are reachable by them as well. Those listings are
+| narrowed to their branch and every single-record route passes through
+| UserPolicy or BranchPolicy (BR-3).
 |
 */
 
@@ -59,6 +65,62 @@ Route::middleware(['auth', 'verified'])
             Route::delete('{user}', [UserController::class, 'destroy'])
                 ->middleware('can:users.delete')
                 ->name('destroy');
+        });
+
+        Route::prefix('branches')->name('branches.')->scopeBindings()->group(function () {
+            Route::get('/', [BranchController::class, 'index'])
+                ->middleware('can:branches.view')
+                ->name('index');
+
+            Route::get('create', [BranchController::class, 'create'])
+                ->middleware('can:branches.create')
+                ->name('create');
+
+            Route::post('/', [BranchController::class, 'store'])
+                ->middleware('can:branches.create')
+                ->name('store');
+
+            Route::get('{branch}/edit', [BranchController::class, 'edit'])
+                ->middleware('can:branches.update')
+                ->name('edit');
+
+            Route::put('{branch}', [BranchController::class, 'update'])
+                ->middleware('can:branches.update')
+                ->name('update');
+
+            Route::patch('{branch}/status', [BranchController::class, 'updateStatus'])
+                ->middleware('can:branches.update')
+                ->name('status.update');
+
+            Route::delete('{branch}', [BranchController::class, 'destroy'])
+                ->middleware('can:branches.delete')
+                ->name('destroy');
+
+            Route::put('{branch}/operating-hours', [BranchOperatingHourController::class, 'update'])
+                ->middleware('can:branches.update')
+                ->name('operating-hours.update');
+
+            Route::post('{branch}/staff', [BranchStaffController::class, 'store'])
+                ->middleware('can:users.update')
+                ->name('staff.store');
+
+            Route::prefix('{branch}/warehouses')->name('warehouses.')->group(function () {
+                Route::post('/', [BranchWarehouseController::class, 'store'])
+                    ->middleware('can:warehouses.manage')
+                    ->name('store');
+
+                Route::put('{warehouse}', [BranchWarehouseController::class, 'update'])
+                    ->middleware('can:warehouses.manage')
+                    ->name('update');
+
+                Route::patch('{warehouse}/default', [BranchWarehouseController::class, 'setDefault'])
+                    ->middleware('can:warehouses.manage')
+                    ->name('default.update');
+
+                Route::delete('{warehouse}', [BranchWarehouseController::class, 'destroy'])
+                    ->middleware('can:warehouses.manage')
+                    ->name('destroy');
+            });
         });
 
         Route::prefix('roles')->name('roles.')->group(function () {

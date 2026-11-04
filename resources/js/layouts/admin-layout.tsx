@@ -1,9 +1,10 @@
-import { LayoutGrid, ShieldCheck, Users } from 'lucide-react';
+import { LayoutGrid, ShieldCheck, Store, Users } from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { dashboard } from '@/routes/admin';
+import { index as branchesIndex } from '@/routes/admin/branches';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
@@ -24,6 +25,17 @@ const navGroups: PanelNavGroup[] = [
                 href: dashboard(),
                 icon: LayoutGrid,
                 permission: 'dashboard.central.view',
+            },
+        ],
+    },
+    {
+        label: 'Master Data',
+        items: [
+            {
+                title: 'Cabang',
+                href: branchesIndex(),
+                icon: Store,
+                permission: 'branches.view',
             },
         ],
     },

@@ -41,6 +41,8 @@ type UserFormProps = {
     submitLabel: string;
     /** Extra controls rendered next to the submit button. */
     secondaryAction?: ReactNode;
+    /** Branch to select up front, e.g. when the branch screen linked here. */
+    prefilledBranchId?: number | null;
 };
 
 /**
@@ -57,11 +59,15 @@ export function UserForm({
     user,
     submitLabel,
     secondaryAction,
+    prefilledBranchId,
 }: UserFormProps) {
     const [role, setRole] = useState<string>(user?.role ?? '');
     const [isActive, setIsActive] = useState(user?.is_active ?? true);
     const [branchId, setBranchId] = useState<string>(
-        user?.branch_id?.toString() ?? options.lockedBranchId?.toString() ?? '',
+        user?.branch_id?.toString() ??
+            options.lockedBranchId?.toString() ??
+            prefilledBranchId?.toString() ??
+            '',
     );
 
     const requiresBranch = useMemo(

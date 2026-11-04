@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\Auditable;
 use App\Enums\BranchStatus;
 use Database\Factories\BranchFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -50,7 +51,7 @@ use Illuminate\Support\Carbon;
 class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */
-    use HasFactory, SoftDeletes;
+    use Auditable, HasFactory, SoftDeletes;
 
     /**
      * @return array<string, string>
