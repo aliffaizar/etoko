@@ -150,7 +150,12 @@ return [
             'stock_entries.view', 'stock_entries.create', 'stock_entries.post',
             'stock_issues.view', 'stock_issues.create', 'stock_issues.post',
             'stock_transfers.view', 'stock_transfers.request',
-            'stock_opnames.view', 'stock_opnames.create', 'stock_opnames.complete',
+            // Warehouse staff open a count and type what they find, but do not
+            // close it: completing an opname is the moment the variances hit
+            // the ledger and the branch's figures change, so the person who
+            // walked the shelves is not also the person approving what they
+            // found (docs/04-rbac.md, P1-E4-T7).
+            'stock_opnames.view', 'stock_opnames.create',
             'reports.stock.view',
         ],
 

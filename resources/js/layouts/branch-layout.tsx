@@ -1,6 +1,9 @@
 import {
     Boxes,
+    ClipboardList,
     FolderTree,
+    PackageMinus,
+    PackagePlus,
     LayoutGrid,
     Package,
     Store,
@@ -13,6 +16,9 @@ import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { dashboard } from '@/routes/branch';
+import stockEntries from '@/routes/branch/stock-entries';
+import stockIssues from '@/routes/branch/stock-issues';
+import stockOpnames from '@/routes/branch/stock-opnames';
 import stocks from '@/routes/branch/stocks';
 import { edit as branchEdit } from '@/routes/admin/branches';
 import branchPrices from '@/routes/admin/branches/prices';
@@ -61,6 +67,24 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: stocks.index(),
                 icon: Boxes,
                 permission: 'stocks.view',
+            },
+            {
+                title: 'Barang Masuk',
+                href: stockEntries.index(),
+                icon: PackagePlus,
+                permission: 'stock_entries.view',
+            },
+            {
+                title: 'Barang Keluar',
+                href: stockIssues.index(),
+                icon: PackageMinus,
+                permission: 'stock_issues.view',
+            },
+            {
+                title: 'Stok Opname',
+                href: stockOpnames.index(),
+                icon: ClipboardList,
+                permission: 'stock_opnames.view',
             },
         ],
     });

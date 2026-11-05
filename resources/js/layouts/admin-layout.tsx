@@ -1,8 +1,11 @@
 import {
     Boxes,
+    ClipboardList,
     FolderTree,
     LayoutGrid,
     Package,
+    PackageMinus,
+    PackagePlus,
     Palette,
     ShieldCheck,
     Store,
@@ -19,6 +22,9 @@ import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import stockEntries from '@/routes/branch/stock-entries';
+import stockIssues from '@/routes/branch/stock-issues';
+import stockOpnames from '@/routes/branch/stock-opnames';
 import stocks from '@/routes/branch/stocks';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
 
@@ -82,6 +88,24 @@ const navGroups: PanelNavGroup[] = [
                 href: stocks.index(),
                 icon: Boxes,
                 permission: 'stocks.view',
+            },
+            {
+                title: 'Barang Masuk',
+                href: stockEntries.index(),
+                icon: PackagePlus,
+                permission: 'stock_entries.view',
+            },
+            {
+                title: 'Barang Keluar',
+                href: stockIssues.index(),
+                icon: PackageMinus,
+                permission: 'stock_issues.view',
+            },
+            {
+                title: 'Stok Opname',
+                href: stockOpnames.index(),
+                icon: ClipboardList,
+                permission: 'stock_opnames.view',
             },
         ],
     },
