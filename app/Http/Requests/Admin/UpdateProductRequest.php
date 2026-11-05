@@ -57,6 +57,18 @@ class UpdateProductRequest extends FormRequest
             'sku' => mb_strtoupper(trim((string) $this->input('sku'))),
         ]);
         $this->normalizeProductNumbers();
+        $this->resolvePublishedAt($this->product()->published_at);
+    }
+
+    /**
+     * The product fields the Action wants: everything validated, minus the
+     * `publication_mode` helper that only said how to read `published_at`.
+     *
+     * @return array<string, mixed>
+     */
+    public function productFields(): array
+    {
+        return $this->productAttributes();
     }
 
     /**

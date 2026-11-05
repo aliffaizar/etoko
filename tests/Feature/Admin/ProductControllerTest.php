@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProductPublicationState;
 use App\Enums\ProductType;
 use App\Enums\UserRole;
 use App\Models\Category;
@@ -405,12 +406,180 @@ it('toggles the featured flag without touching the active one', function () {
         ->and($product->is_active)->toBeTrue();
 });
 
-it('refuses a status request that carries neither flag', function () {
+it('refuses a status request that carries no action at all', function () {
     $product = Product::factory()->withDefaultVariant()->create();
 
     $this->actingAs(User::factory()->adminPusat()->create())
         ->patch(route('admin.products.status.update', $product), [])
-        ->assertSessionHasErrors(['is_active', 'is_featured']);
+        ->assertSessionHasErrors(['is_active', 'is_featured', 'publication']);
+});
+
+/*
+ * Publishing (BUG: a product could only be published by typing a date into an
+ * optional field, so every product created from the panel stayed a draft).
+ */
+
+it('publishes a draft product in one action', function () {
+    $product = Product::factory()->draft()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->patch(route('admin.products.status.update', $product), ['publication' => 'published'])
+        ->assertRedirect();
+
+    expect($product->refresh()->publicationState())->toBe(ProductPublicationState::Published)
+        ->and($product->isPublished())->toBeTrue();
+});
+
+it('switches a product on when publishing it, since otherwise it stays invisible', function () {
+    $product = Product::factory()->inactive()->draft()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->patch(route('admin.products.status.update', $product), ['publication' => 'published']);
+
+    expect($product->refresh()->is_active)->toBeTrue()
+        ->and($product->isPublished())->toBeTrue();
+});
+
+it('brings a published product back to draft', function () {
+    $product = Product::factory()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->patch(route('admin.products.status.update', $product), ['publication' => 'draft']);
+
+    expect($product->refresh()->published_at)->toBeNull()
+        ->and($product->publicationState())->toBe(ProductPublicationState::Draft)
+        // Returning to draft hides the product; it does not switch it off.
+        ->and($product->is_active)->toBeTrue();
+});
+
+it('dates a publish from the server clock, not the request', function () {
+    $product = Product::factory()->draft()->withDefaultVariant()->create();
+
+    $this->freezeTime(function () use ($product) {
+        $this->actingAs(User::factory()->adminPusat()->create())
+            ->patch(route('admin.products.status.update', $product), [
+                'publication' => 'published',
+                'published_at' => '2030-01-01 00:00:00',
+            ]);
+
+        expect($product->refresh()->published_at->toIso8601String())->toBe(now()->toIso8601String());
+    });
+});
+
+it('refuses a publication value it does not know', function () {
+    $product = Product::factory()->draft()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->patch(route('admin.products.status.update', $product), ['publication' => 'nanti'])
+        ->assertSessionHasErrors('publication');
+
+    expect($product->refresh()->published_at)->toBeNull();
+});
+
+it('publishes straight from the create form', function () {
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->post(route('admin.products.store'), productPayload([
+            'publication_mode' => 'published',
+            'published_at' => null,
+        ]))
+        ->assertRedirect();
+
+    expect(Product::query()->sole()->isPublished())->toBeTrue();
+});
+
+it('keeps a new product a draft when the form says draft', function () {
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->post(route('admin.products.store'), productPayload([
+            'publication_mode' => 'draft',
+            // A date left in the payload must not sneak the product live.
+            'published_at' => '2026-11-01 08:00',
+        ]));
+
+    $product = Product::query()->sole();
+
+    expect($product->published_at)->toBeNull()
+        ->and($product->publicationState())->toBe(ProductPublicationState::Draft);
+});
+
+it('schedules a new product for the chosen moment', function () {
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->post(route('admin.products.store'), productPayload([
+            'publication_mode' => 'scheduled',
+            'published_at' => now()->addWeek()->format('Y-m-d H:i'),
+        ]));
+
+    expect(Product::query()->sole()->publicationState())->toBe(ProductPublicationState::Scheduled);
+});
+
+it('dates a publish from the create form on the server clock', function () {
+    $this->freezeTime(function () {
+        $this->actingAs(User::factory()->adminPusat()->create())
+            ->post(route('admin.products.store'), productPayload([
+                'publication_mode' => 'published',
+                // A browser clock a decade ahead must not win.
+                'published_at' => '2036-01-01 00:00',
+            ]));
+
+        expect(Product::query()->sole()->published_at->toIso8601String())
+            ->toBe(now()->toIso8601String());
+    });
+});
+
+it('keeps the original release moment when a published product is edited again', function () {
+    $releasedAt = now()->subMonth()->startOfMinute();
+    $product = Product::factory()->publishedAt($releasedAt)->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->put(route('admin.products.update', $product), productPayload([
+            'slug' => $product->slug,
+            'sku' => $product->variants()->value('sku'),
+            'barcode' => null,
+            'name' => 'Nama Yang Disunting',
+            'publication_mode' => 'published',
+        ]));
+
+    expect($product->refresh()->published_at->toIso8601String())->toBe($releasedAt->toIso8601String())
+        ->and($product->name)->toBe('Nama Yang Disunting');
+});
+
+it('reports which publication choice the edit form should start on', function (callable $build, string $expected) {
+    /** @var Product $product */
+    $product = $build()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->get(route('admin.products.edit', $product))
+        ->assertInertia(fn ($page) => $page->where('product.publication_mode', $expected));
+})->with([
+    'draft' => [fn () => Product::factory()->draft(), 'draft'],
+    'published' => [fn () => Product::factory(), 'published'],
+    'scheduled' => [fn () => Product::factory()->publishedAt(now()->addWeek()), 'scheduled'],
+]);
+
+it('refuses a publication mode it does not know', function () {
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->post(route('admin.products.store'), productPayload(['publication_mode' => 'nanti-saja']))
+        ->assertSessionHasErrors('publication_mode');
+
+    expect(Product::count())->toBe(0);
+});
+
+it('still honours a published_at sent without a publication mode', function () {
+    // The CSV import and any other caller write the date directly; adding the
+    // form's helper must not have broken them.
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->post(route('admin.products.store'), productPayload(['published_at' => '2026-11-01 08:00']));
+
+    expect(Product::query()->sole()->published_at->format('Y-m-d H:i'))->toBe('2026-11-01 08:00');
+});
+
+it('forbids a branch admin from publishing', function () {
+    $product = Product::factory()->draft()->withDefaultVariant()->create();
+
+    $this->actingAs(User::factory()->adminCabang()->create())
+        ->patch(route('admin.products.status.update', $product), ['publication' => 'published'])
+        ->assertForbidden();
+
+    expect($product->refresh()->published_at)->toBeNull();
 });
 
 it('forbids a cashier from toggling a product', function () {

@@ -1,12 +1,14 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
     Boxes,
+    EyeOff,
     FileUp,
     Images,
     MoreHorizontal,
     Package,
     Pencil,
     Plus,
+    Send,
     Star,
     StarOff,
     ToggleLeft,
@@ -322,7 +324,7 @@ function RowActions({
     // staff and cashiers hold — so the menu is not empty for them even though
     // every write is hidden.
 
-    const patch = (payload: Record<string, boolean>): void => {
+    const patch = (payload: Record<string, boolean | string>): void => {
         router.patch(ProductController.updateStatus(product.id).url, payload, {
             preserveScroll: true,
         });
@@ -361,6 +363,28 @@ function RowActions({
                                 <Pencil aria-hidden />
                                 Ubah produk
                             </Link>
+                        </DropdownMenuItem>
+                        {/* A catalogue is normally written first and released
+                            afterwards, so publishing is one click from the
+                            row rather than a date field inside the form. */}
+                        <DropdownMenuItem
+                            onClick={() =>
+                                patch({
+                                    publication:
+                                        product.state === 'published'
+                                            ? 'draft'
+                                            : 'published',
+                                })
+                            }
+                        >
+                            {product.state === 'published' ? (
+                                <EyeOff aria-hidden />
+                            ) : (
+                                <Send aria-hidden />
+                            )}
+                            {product.state === 'published'
+                                ? 'Jadikan draf'
+                                : 'Terbitkan sekarang'}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={() =>

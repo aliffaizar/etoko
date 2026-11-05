@@ -1,5 +1,5 @@
-import { Head, Link, setLayoutProps } from '@inertiajs/react';
-import { Boxes, Images, Star } from 'lucide-react';
+import { Head, Link, router, setLayoutProps } from '@inertiajs/react';
+import { Boxes, Images, Send, Star } from 'lucide-react';
 import ProductController from '@/actions/App/Http/Controllers/Admin/ProductController';
 import Heading from '@/components/heading';
 import { ProductForm } from '@/components/admin/product-form';
@@ -61,6 +61,25 @@ export default function ProductsEdit({
                         description={`${product.sku} · ${product.category_name} · ${product.variant_count} varian · Dibuat ${formatDateTime(product.created_at)}`}
                     />
                     <div className="flex flex-wrap items-center gap-2">
+                        {/* Creating a product lands here, so the one action a
+                            freshly written product needs is in the header
+                            rather than only inside the form below. */}
+                        {can.update && product.state !== 'published' && (
+                            <Button
+                                onClick={() =>
+                                    router.patch(
+                                        ProductController.updateStatus(
+                                            product.id,
+                                        ).url,
+                                        { publication: 'published' },
+                                        { preserveScroll: true },
+                                    )
+                                }
+                            >
+                                <Send aria-hidden />
+                                Terbitkan sekarang
+                            </Button>
+                        )}
                         <Button variant="outline" asChild>
                             <Link href={variants.index(product.id)}>
                                 <Boxes aria-hidden />

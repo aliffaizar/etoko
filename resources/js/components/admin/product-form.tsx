@@ -19,6 +19,31 @@ import { formatRupiah } from '@/lib/format';
 import type { ProductDetail, ProductFormOptions } from '@/types';
 import type { RouteFormDefinition } from '@/wayfinder';
 
+/** The publication choices the form offers, mirroring the status badge. */
+type PublicationMode = 'draft' | 'published' | 'scheduled';
+
+const PUBLICATION_CHOICES: {
+    value: PublicationMode;
+    label: string;
+    description: string;
+}[] = [
+    {
+        value: 'draft',
+        label: 'Draf',
+        description: 'Disimpan, belum tampil ke pembeli.',
+    },
+    {
+        value: 'published',
+        label: 'Terbitkan',
+        description: 'Langsung tampil ke pembeli.',
+    },
+    {
+        value: 'scheduled',
+        label: 'Terjadwal',
+        description: 'Tampil otomatis pada waktu yang dipilih.',
+    },
+];
+
 /**
  * The fields this form submits, so Inertia can type its validation errors.
  * Everything travels as a string because it is a plain HTML form.
@@ -41,6 +66,7 @@ type ProductFormData = {
     height_cm: string;
     is_active: string;
     is_featured: string;
+    publication_mode: string;
     published_at: string;
     meta_title: string;
     meta_description: string;
@@ -84,6 +110,12 @@ export function ProductForm({
     );
     const [type, setType] = useState<string>(product?.type ?? 'simple');
     const [isActive, setIsActive] = useState(product?.is_active ?? true);
+    // A new product starts as a draft on purpose — writing a catalogue and
+    // releasing it are different moments — but the choice is now in front of
+    // the user instead of hidden behind an empty date field.
+    const [publicationMode, setPublicationMode] = useState<PublicationMode>(
+        product?.publication_mode ?? 'draft',
+    );
     const [isFeatured, setIsFeatured] = useState(product?.is_featured ?? false);
     const [basePrice, setBasePrice] = useState<string>(
         product ? String(product.base_price) : '',
@@ -429,23 +461,69 @@ export function ProductForm({
 
                         <div className="grid gap-6 md:grid-cols-2">
                             <div className="grid gap-2">
-                                <Label htmlFor="published_at">
-                                    Tanggal terbit{' '}
-                                    <span className="text-muted-foreground">
-                                        (opsional)
-                                    </span>
+                                <Label htmlFor="publication_mode">
+                                    Status terbit
                                 </Label>
-                                <Input
-                                    id="published_at"
-                                    name="published_at"
-                                    type="datetime-local"
-                                    defaultValue={product?.published_at ?? ''}
+                                <input
+                                    type="hidden"
+                                    name="publication_mode"
+                                    value={publicationMode}
                                 />
-                                <p className="text-xs text-muted-foreground">
-                                    Kosong berarti masih draf. Tanggal di masa
-                                    depan berarti terjadwal.
-                                </p>
+                                <div
+                                    id="publication_mode"
+                                    role="radiogroup"
+                                    aria-label="Status terbit"
+                                    className="grid gap-2 sm:grid-cols-3"
+                                >
+                                    {PUBLICATION_CHOICES.map((choice) => (
+                                        <button
+                                            key={choice.value}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={
+                                                publicationMode === choice.value
+                                            }
+                                            onClick={() =>
+                                                setPublicationMode(choice.value)
+                                            }
+                                            className={`rounded-lg border p-3 text-start transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${
+                                                publicationMode === choice.value
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'hover:bg-muted'
+                                            }`}
+                                        >
+                                            <span className="block text-sm font-medium">
+                                                {choice.label}
+                                            </span>
+                                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                {choice.description}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {publicationMode === 'scheduled' && (
+                                    <div className="mt-1 grid gap-2">
+                                        <Label htmlFor="published_at">
+                                            Tanggal & jam terbit
+                                        </Label>
+                                        <Input
+                                            id="published_at"
+                                            name="published_at"
+                                            type="datetime-local"
+                                            required
+                                            defaultValue={
+                                                product?.published_at ?? ''
+                                            }
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            Produk tampil otomatis begitu waktu
+                                            ini lewat.
+                                        </p>
+                                    </div>
+                                )}
                                 <InputError message={errors.published_at} />
+                                <InputError message={errors.publication_mode} />
                             </div>
 
                             <div className="grid gap-3">

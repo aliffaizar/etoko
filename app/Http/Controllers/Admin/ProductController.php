@@ -71,7 +71,7 @@ class ProductController extends Controller
     {
         $this->authorize('create', Product::class);
 
-        $product = $createProduct->handle($request->validated());
+        $product = $createProduct->handle($request->productFields());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => "Produk {$product->name} berhasil dibuat."]);
 
@@ -102,7 +102,7 @@ class ProductController extends Controller
     {
         $this->authorize('update', $product);
 
-        $updateProduct->handle($product, $request->validated());
+        $updateProduct->handle($product, $request->productFields());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Perubahan produk berhasil disimpan.']);
 
@@ -110,7 +110,7 @@ class ProductController extends Controller
     }
 
     /**
-     * The active and featured toggles on the listing.
+     * The quick actions on the listing: active, featured and publish.
      */
     public function updateStatus(UpdateProductStatusRequest $request, Product $product): RedirectResponse
     {
@@ -225,6 +225,10 @@ class ProductController extends Controller
             // The datetime-local input wants `YYYY-MM-DDTHH:MM` in the app's
             // own timezone, not an ISO string with an offset.
             'published_at' => $product->published_at?->format('Y-m-d\TH:i'),
+            // Which of the form's three publication choices this product is
+            // currently in, derived from the date alone — `is_active` is its
+            // own checkbox and must not change the answer.
+            'publication_mode' => $this->publicationModeFor($product),
             'meta_title' => $product->meta_title,
             'meta_description' => $product->meta_description,
             'sku' => $defaultVariant instanceof ProductVariant ? $defaultVariant->sku : '',
@@ -235,6 +239,18 @@ class ProductController extends Controller
             'sold_count' => $product->sold_count,
             'created_at' => $product->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Which publication choice the edit form should start on.
+     */
+    private function publicationModeFor(Product $product): string
+    {
+        if ($product->published_at === null) {
+            return 'draft';
+        }
+
+        return $product->published_at->isFuture() ? 'scheduled' : 'published';
     }
 
     /**
@@ -282,10 +298,22 @@ class ProductController extends Controller
     }
 
     /**
-     * @param  array<string, bool>  $flags
+     * Names the change that was actually made, so the toast is specific rather
+     * than a generic "tersimpan".
+     *
+     * Publication is checked first because publishing also switches the
+     * product on, and "diterbitkan" is the part the user asked for.
+     *
+     * @param  array<string, mixed>  $flags
      */
     private function statusMessageFor(Product $product, array $flags): string
     {
+        if (array_key_exists('published_at', $flags)) {
+            return $flags['published_at'] === null
+                ? "Produk {$product->name} dikembalikan menjadi draf dan tidak lagi tampil ke pembeli."
+                : "Produk {$product->name} diterbitkan dan kini tampil ke pembeli.";
+        }
+
         if (array_key_exists('is_featured', $flags)) {
             return $flags['is_featured']
                 ? "Produk {$product->name} ditandai sebagai unggulan."

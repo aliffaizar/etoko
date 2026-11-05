@@ -61,6 +61,11 @@ export type ProductDetail = {
     is_featured: boolean;
     /** `YYYY-MM-DDTHH:MM` for a `datetime-local` input, or null for a draft. */
     published_at: string | null;
+    /**
+     * Which of the form's three publication choices the product is in,
+     * derived server-side from `published_at` alone.
+     */
+    publication_mode: 'draft' | 'published' | 'scheduled';
     meta_title: string | null;
     meta_description: string | null;
     /** The default variant's SKU and barcode, which this screen owns (ADR-020). */
