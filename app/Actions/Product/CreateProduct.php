@@ -3,7 +3,6 @@
 namespace App\Actions\Product;
 
 use App\Models\Product;
-use App\Support\UniqueSlug;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -17,6 +16,9 @@ use Illuminate\Support\Facades\DB;
  *
  * The variant is created bare: its price, weight and dimensions stay null and
  * fall back to the product's own, so the two can never drift apart.
+ *
+ * The slug is not set here: the create form does not ask for one and
+ * `ProductObserver` derives it from the name (P1-E3-T8).
  */
 final class CreateProduct
 {
@@ -31,10 +33,7 @@ final class CreateProduct
 
             unset($attributes['sku'], $attributes['barcode']);
 
-            $product = Product::create([
-                ...$attributes,
-                'slug' => $attributes['slug'] ?? UniqueSlug::from((string) $attributes['name'], Product::withTrashed()),
-            ]);
+            $product = Product::create($attributes);
 
             $product->variants()->create([
                 'sku' => $sku,

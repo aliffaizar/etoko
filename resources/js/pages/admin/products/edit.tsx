@@ -1,5 +1,5 @@
 import { Head, Link, setLayoutProps } from '@inertiajs/react';
-import { Star } from 'lucide-react';
+import { Boxes, Star } from 'lucide-react';
 import ProductController from '@/actions/App/Http/Controllers/Admin/ProductController';
 import Heading from '@/components/heading';
 import { ProductForm } from '@/components/admin/product-form';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
 import { edit, index as productsIndex } from '@/routes/admin/products';
+import variants from '@/routes/admin/products/variants';
 import type {
     ProductAbilities,
     ProductDetail,
@@ -59,6 +60,12 @@ export default function ProductsEdit({
                         description={`${product.sku} · ${product.category_name} · ${product.variant_count} varian · Dibuat ${formatDateTime(product.created_at)}`}
                     />
                     <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" asChild>
+                            <Link href={variants.index(product.id)}>
+                                <Boxes aria-hidden />
+                                Varian ({product.variant_count})
+                            </Link>
+                        </Button>
                         {product.is_featured && (
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                 <Star
@@ -79,10 +86,11 @@ export default function ProductsEdit({
                     <CardHeader>
                         <CardTitle>Data produk</CardTitle>
                         <CardDescription>
-                            Harga dan berat di sini berlaku untuk semua cabang.
-                            Varian, galeri foto, serta ketersediaan dan harga
-                            khusus per cabang punya layarnya sendiri dan
-                            menyusul di tahap berikutnya.
+                            Harga dan berat di sini berlaku untuk semua cabang,
+                            dan menjadi acuan setiap varian yang tidak mengisi
+                            angkanya sendiri. Varian punya layarnya sendiri;
+                            galeri foto serta ketersediaan dan harga khusus per
+                            cabang menyusul di tahap berikutnya.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>

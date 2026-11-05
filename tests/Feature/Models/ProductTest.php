@@ -111,6 +111,15 @@ it('keeps the denormalised counters out of the audit log', function () {
 it('requires a unique slug', function () {
     Product::factory()->create(['slug' => 'kipas-angin']);
 
-    expect(fn () => Product::factory()->create(['slug' => 'kipas-angin']))
-        ->toThrow(QueryException::class);
+    // Through a model, `ProductObserver` suffixes a taken slug rather than
+    // letting the insert fail (P1-E3-T8, covered in ProductSlugAndIdentityTest).
+    // The index underneath it is what this asserts, so the insert is raw.
+    expect(fn () => Product::query()->insert([
+        'category_id' => Category::factory()->create()->id,
+        'name' => 'Kipas Angin',
+        'slug' => 'kipas-angin',
+        'type' => 'simple',
+        'base_price' => 150000,
+        'weight_gram' => 500,
+    ]))->toThrow(QueryException::class);
 });

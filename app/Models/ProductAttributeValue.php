@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\Auditable;
 use Database\Factories\ProductAttributeValueFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -33,7 +34,7 @@ use Illuminate\Support\Carbon;
 class ProductAttributeValue extends Model
 {
     /** @use HasFactory<ProductAttributeValueFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     /**
      * @return BelongsTo<ProductAttribute, $this>
@@ -61,6 +62,23 @@ class ProductAttributeValue extends Model
     public function displayLabel(): string
     {
         return $this->label ?? $this->value;
+    }
+
+    /**
+     * How many variants across the catalogue this value defines.
+     *
+     * Reuses the `variants_count` of a `withCount(['variants'])` listing when
+     * it is there.
+     */
+    public function variantCount(): int
+    {
+        $counted = $this->getAttribute('variants_count');
+
+        if ($counted !== null) {
+            return (int) $counted;
+        }
+
+        return $this->variants()->count();
     }
 
     /**

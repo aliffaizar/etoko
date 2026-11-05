@@ -1,5 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
+    Boxes,
     MoreHorizontal,
     Package,
     Pencil,
@@ -35,6 +36,7 @@ import {
 import { useTableQuery } from '@/hooks/use-table-query';
 import { formatRupiah, formatWeight } from '@/lib/format';
 import { index as productsIndex } from '@/routes/admin/products';
+import variants from '@/routes/admin/products/variants';
 import type {
     DataTableColumn,
     FilterField,
@@ -295,9 +297,9 @@ function RowActions({
     product: ProductListItem;
     onRequestDelete: () => void;
 }) {
-    if (!product.can.update && !product.can.delete) {
-        return null;
-    }
+    // The variant list is readable with `products.view` alone, which warehouse
+    // staff and cashiers hold — so the menu is not empty for them even though
+    // every write is hidden.
 
     const patch = (payload: Record<string, boolean>): void => {
         router.patch(ProductController.updateStatus(product.id).url, payload, {
@@ -317,8 +319,16 @@ function RowActions({
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                    <Link href={variants.index(product.id)}>
+                        <Boxes aria-hidden />
+                        Varian ({product.variant_count})
+                    </Link>
+                </DropdownMenuItem>
+
                 {product.can.update && (
                     <>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
                             <Link href={ProductController.edit(product.id)}>
                                 <Pencil aria-hidden />

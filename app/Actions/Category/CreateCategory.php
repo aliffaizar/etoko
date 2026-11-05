@@ -3,17 +3,13 @@
 namespace App\Actions\Category;
 
 use App\Models\Category;
-use App\Support\UniqueSlug;
 
 /**
  * Creates a category (P1-E3-T2).
  *
- * The slug is derived from the name, because the create form does not ask for
- * one; it becomes editable on the category's own screen afterwards, the same
- * way a branch's slug does.
- *
- * Soft-deleted categories keep their slug, so a restored category still owns
- * the links that were shared while it existed.
+ * The create form does not ask for a slug; `CategoryObserver` derives one from
+ * the name (P1-E3-T8), and the category's own screen makes it editable
+ * afterwards, the same way a branch's slug works.
  */
 final class CreateCategory
 {
@@ -22,9 +18,6 @@ final class CreateCategory
      */
     public function handle(array $attributes): Category
     {
-        return Category::create([
-            ...$attributes,
-            'slug' => $attributes['slug'] ?? UniqueSlug::from((string) $attributes['name'], Category::withTrashed()),
-        ]);
+        return Category::create($attributes);
     }
 }

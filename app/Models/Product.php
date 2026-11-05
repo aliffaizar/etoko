@@ -5,8 +5,10 @@ namespace App\Models;
 use App\Concerns\Auditable;
 use App\Enums\ProductPublicationState;
 use App\Enums\ProductType;
+use App\Observers\ProductObserver;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -62,6 +64,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, ProductVariant> $variants
  * @property-read Collection<int, ProductImage> $images
  */
+#[ObservedBy(ProductObserver::class)]
 #[Fillable([
     'category_id', 'name', 'slug', 'type', 'short_description', 'description',
     'base_price', 'compare_at_price', 'cost_price',

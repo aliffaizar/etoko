@@ -2,6 +2,7 @@ import {
     FolderTree,
     LayoutGrid,
     Package,
+    Palette,
     ShieldCheck,
     Store,
     Users,
@@ -13,6 +14,7 @@ import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { dashboard } from '@/routes/admin';
 import { index as branchesIndex } from '@/routes/admin/branches';
 import { index as categoriesIndex } from '@/routes/admin/categories';
+import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
@@ -51,6 +53,12 @@ const navGroups: PanelNavGroup[] = [
                 href: categoriesIndex(),
                 icon: FolderTree,
                 permission: 'categories.view',
+            },
+            {
+                title: 'Atribut Produk',
+                href: attributesIndex(),
+                icon: Palette,
+                permission: 'products.view',
             },
             {
                 title: 'Cabang',

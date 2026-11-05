@@ -6,7 +6,10 @@ use App\Http\Controllers\Admin\BranchStaffController;
 use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\ProductAttributeController;
+use App\Http\Controllers\Admin\ProductAttributeValueController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ProductVariantController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -129,7 +132,7 @@ Route::middleware(['auth', 'verified', 'branch'])
             });
         });
 
-        Route::prefix('products')->name('products.')->group(function () {
+        Route::prefix('products')->name('products.')->scopeBindings()->group(function () {
             Route::get('/', [ProductController::class, 'index'])
                 ->middleware('can:products.view')
                 ->name('index');
@@ -157,6 +160,64 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::delete('{product}', [ProductController::class, 'destroy'])
                 ->middleware('can:products.delete')
                 ->name('destroy');
+
+            Route::prefix('{product}/variants')->name('variants.')->group(function () {
+                Route::get('/', [ProductVariantController::class, 'index'])
+                    ->middleware('can:products.view')
+                    ->name('index');
+
+                Route::post('generate', [ProductVariantController::class, 'generate'])
+                    ->middleware('can:products.update')
+                    ->name('generate');
+
+                Route::post('/', [ProductVariantController::class, 'store'])
+                    ->middleware('can:products.update')
+                    ->name('store');
+
+                Route::put('{variant}', [ProductVariantController::class, 'update'])
+                    ->middleware('can:products.update')
+                    ->name('update');
+
+                Route::patch('{variant}/default', [ProductVariantController::class, 'setDefault'])
+                    ->middleware('can:products.update')
+                    ->name('default.update');
+
+                Route::delete('{variant}', [ProductVariantController::class, 'destroy'])
+                    ->middleware('can:products.update')
+                    ->name('destroy');
+            });
+        });
+
+        Route::prefix('product-attributes')->name('product-attributes.')->scopeBindings()->group(function () {
+            Route::get('/', [ProductAttributeController::class, 'index'])
+                ->middleware('can:products.view')
+                ->name('index');
+
+            Route::post('/', [ProductAttributeController::class, 'store'])
+                ->middleware('can:products.create')
+                ->name('store');
+
+            Route::put('{attribute}', [ProductAttributeController::class, 'update'])
+                ->middleware('can:products.update')
+                ->name('update');
+
+            Route::delete('{attribute}', [ProductAttributeController::class, 'destroy'])
+                ->middleware('can:products.delete')
+                ->name('destroy');
+
+            Route::prefix('{attribute}/values')->name('values.')->group(function () {
+                Route::post('/', [ProductAttributeValueController::class, 'store'])
+                    ->middleware('can:products.update')
+                    ->name('store');
+
+                Route::put('{value}', [ProductAttributeValueController::class, 'update'])
+                    ->middleware('can:products.update')
+                    ->name('update');
+
+                Route::delete('{value}', [ProductAttributeValueController::class, 'destroy'])
+                    ->middleware('can:products.update')
+                    ->name('destroy');
+            });
         });
 
         Route::prefix('categories')->name('categories.')->group(function () {

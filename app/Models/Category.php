@@ -3,8 +3,10 @@
 namespace App\Models;
 
 use App\Concerns\Auditable;
+use App\Observers\CategoryObserver;
 use Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -43,6 +45,7 @@ use Illuminate\Support\Carbon;
  * @property-read Category|null $parent
  * @property-read Collection<int, Category> $children
  */
+#[ObservedBy(CategoryObserver::class)]
 #[Fillable([
     'parent_id', 'name', 'slug', 'description', 'image_path', 'icon', 'is_active', 'sort_order',
 ])]

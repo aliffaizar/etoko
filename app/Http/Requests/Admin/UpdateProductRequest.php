@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Concerns\ValidatesProductDetails;
+use App\Enums\ProductType;
 use App\Models\Product;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -63,7 +64,38 @@ class UpdateProductRequest extends FormRequest
      */
     public function after(): array
     {
-        return [fn (Validator $validator) => $this->requireCompareAtPriceAboveBasePrice($validator)];
+        return [
+            fn (Validator $validator) => $this->requireCompareAtPriceAboveBasePrice($validator),
+            fn (Validator $validator) => $this->refuseSimpleTypeWhileVariantsExist($validator),
+        ];
+    }
+
+    /**
+     * A `simple` product is sold as one thing and owns exactly one variant
+     * (ADR-020, ADR-022). Switching a product with a grid of variants back to
+     * `simple` would leave that grid in place with nothing in the panel left
+     * to manage it, so the variants have to go first.
+     */
+    private function refuseSimpleTypeWhileVariantsExist(Validator $validator): void
+    {
+        if ($validator->errors()->has('type')) {
+            return;
+        }
+
+        if ($this->input('type') !== ProductType::Simple->value) {
+            return;
+        }
+
+        $variantCount = $this->product()->variants()->count();
+
+        if ($variantCount <= 1) {
+            return;
+        }
+
+        $validator->errors()->add('type', sprintf(
+            'Produk ini punya %d varian, jadi tipenya tidak bisa diubah menjadi produk sederhana. Hapus varian selain varian utama lebih dahulu.',
+            $variantCount,
+        ));
     }
 
     /**

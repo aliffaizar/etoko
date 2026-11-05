@@ -5,5 +5,7 @@ export type * from './data-table';
 export type * from './navigation';
 export type * from './panel';
 export type * from './product';
+export type * from './product-attribute';
+export type * from './product-variant';
 export type * from './ui';
 export type * from './user';

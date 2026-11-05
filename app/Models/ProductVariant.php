@@ -3,8 +3,11 @@
 namespace App\Models;
 
 use App\Concerns\Auditable;
+use App\Observers\ProductVariantObserver;
+use App\Support\AttributeCombinations;
 use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -47,6 +50,7 @@ use Illuminate\Support\Carbon;
  * @property-read Product $product
  * @property-read Collection<int, ProductAttributeValue> $attributeValues
  */
+#[ObservedBy(ProductVariantObserver::class)]
 #[Fillable([
     'product_id', 'sku', 'barcode', 'name',
     'price', 'compare_at_price', 'cost_price',
@@ -133,6 +137,54 @@ class ProductVariant extends Model
     public function displayName(): string
     {
         return $this->name ?? $this->product->name;
+    }
+
+    /**
+     * Whether this variant may be deleted, and why not when it may not.
+     *
+     * One source for the controller's refusal and for the `can.delete` flag the
+     * editor reads, so the button and the endpoint can never disagree — the
+     * pattern `Branch::deletionBlockedReason()` set.
+     *
+     * P1-E4-T1 adds a reason here: a variant holding stock or carrying stock
+     * movements must not leave either.
+     *
+     * The sibling count comes from `Product::variantCount()`, which reuses a
+     * `variants_count` the caller already has — so asking every row of the
+     * editor costs no query.
+     */
+    public function isDeletable(): bool
+    {
+        return $this->deletionBlockedReason() === null;
+    }
+
+    public function deletionBlockedReason(): ?string
+    {
+        if ($this->is_default) {
+            return 'Varian utama tidak dapat dihapus. Tunjuk varian lain sebagai varian utama terlebih dahulu.';
+        }
+
+        if ($this->product->variantCount() <= 1) {
+            return 'Produk harus punya minimal satu varian, karena stok dan pesanan selalu menunjuk varian.';
+        }
+
+        return null;
+    }
+
+    /**
+     * A stable key for this variant's option combination, used to keep two
+     * variants of one product from carrying the same options.
+     *
+     * Reads the already loaded `attributeValues` when they are there, because
+     * `Model::preventLazyLoading()` is on.
+     */
+    public function combinationFingerprint(): string
+    {
+        $ids = $this->relationLoaded('attributeValues')
+            ? $this->attributeValues->pluck('id')->all()
+            : $this->attributeValues()->pluck('product_attribute_values.id')->all();
+
+        return AttributeCombinations::fingerprint($ids);
     }
 
     /**
