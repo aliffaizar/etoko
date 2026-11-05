@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ProductAttributeController;
 use App\Http\Controllers\Admin\ProductAttributeValueController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ProductImageController;
 use App\Http\Controllers\Admin\ProductVariantController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
@@ -160,6 +161,32 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::delete('{product}', [ProductController::class, 'destroy'])
                 ->middleware('can:products.delete')
                 ->name('destroy');
+
+            Route::prefix('{product}/images')->name('images.')->group(function () {
+                Route::get('/', [ProductImageController::class, 'index'])
+                    ->middleware('can:products.view')
+                    ->name('index');
+
+                Route::post('/', [ProductImageController::class, 'store'])
+                    ->middleware('can:products.update')
+                    ->name('store');
+
+                Route::put('order', [ProductImageController::class, 'reorder'])
+                    ->middleware('can:products.update')
+                    ->name('reorder');
+
+                Route::put('{image}', [ProductImageController::class, 'update'])
+                    ->middleware('can:products.update')
+                    ->name('update');
+
+                Route::patch('{image}/primary', [ProductImageController::class, 'setPrimary'])
+                    ->middleware('can:products.update')
+                    ->name('primary.update');
+
+                Route::delete('{image}', [ProductImageController::class, 'destroy'])
+                    ->middleware('can:products.update')
+                    ->name('destroy');
+            });
 
             Route::prefix('{product}/variants')->name('variants.')->group(function () {
                 Route::get('/', [ProductVariantController::class, 'index'])

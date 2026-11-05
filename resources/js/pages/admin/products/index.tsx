@@ -1,6 +1,7 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
     Boxes,
+    Images,
     MoreHorizontal,
     Package,
     Pencil,
@@ -36,6 +37,7 @@ import {
 import { useTableQuery } from '@/hooks/use-table-query';
 import { formatRupiah, formatWeight } from '@/lib/format';
 import { index as productsIndex } from '@/routes/admin/products';
+import images from '@/routes/admin/products/images';
 import variants from '@/routes/admin/products/variants';
 import type {
     DataTableColumn,
@@ -323,6 +325,12 @@ function RowActions({
                     <Link href={variants.index(product.id)}>
                         <Boxes aria-hidden />
                         Varian ({product.variant_count})
+                    </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <Link href={images.index(product.id)}>
+                        <Images aria-hidden />
+                        Foto produk
                     </Link>
                 </DropdownMenuItem>
 

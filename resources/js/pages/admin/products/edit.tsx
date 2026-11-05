@@ -1,5 +1,5 @@
 import { Head, Link, setLayoutProps } from '@inertiajs/react';
-import { Boxes, Star } from 'lucide-react';
+import { Boxes, Images, Star } from 'lucide-react';
 import ProductController from '@/actions/App/Http/Controllers/Admin/ProductController';
 import Heading from '@/components/heading';
 import { ProductForm } from '@/components/admin/product-form';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
 import { edit, index as productsIndex } from '@/routes/admin/products';
+import images from '@/routes/admin/products/images';
 import variants from '@/routes/admin/products/variants';
 import type {
     ProductAbilities,
@@ -66,6 +67,12 @@ export default function ProductsEdit({
                                 Varian ({product.variant_count})
                             </Link>
                         </Button>
+                        <Button variant="outline" asChild>
+                            <Link href={images.index(product.id)}>
+                                <Images aria-hidden />
+                                Foto
+                            </Link>
+                        </Button>
                         {product.is_featured && (
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                 <Star
@@ -88,9 +95,9 @@ export default function ProductsEdit({
                         <CardDescription>
                             Harga dan berat di sini berlaku untuk semua cabang,
                             dan menjadi acuan setiap varian yang tidak mengisi
-                            angkanya sendiri. Varian punya layarnya sendiri;
-                            galeri foto serta ketersediaan dan harga khusus per
-                            cabang menyusul di tahap berikutnya.
+                            angkanya sendiri. Varian dan galeri foto punya
+                            layarnya sendiri pula. Ketersediaan dan harga khusus
+                            per cabang menyusul di tahap berikutnya.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
