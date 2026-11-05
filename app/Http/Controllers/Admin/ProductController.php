@@ -16,6 +16,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Support\CategoryTree;
+use App\Support\ProductListQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -180,48 +181,20 @@ class ProductController extends Controller
     }
 
     /**
+     * The listing's filtered, ordered query.
+     *
+     * The filters themselves live in `ProductListQuery`, which the CSV export
+     * reads as well (P1-E3-T11) — "export what I am looking at" is only true
+     * while the two share one definition.
+     *
      * @param  array{search: string, category: string, state: string, type: string, featured: string, sort: string, direction: string}  $filters
      * @return Builder<Product>
      */
     private function listQuery(array $filters): Builder
     {
-        return Product::query()
+        return ProductListQuery::ordered($filters)
             ->with(['category:id,name', 'defaultVariant:id,product_id,sku'])
-            ->withCount(['variants'])
-            ->when($filters['search'] !== '', fn (Builder $query) => $query->where(
-                fn (Builder $match) => $match
-                    ->where('name', 'like', "%{$filters['search']}%")
-                    ->orWhere('slug', 'like', "%{$filters['search']}%")
-                    ->orWhereHas('variants', fn (Builder $variants) => $variants
-                        ->where('sku', 'like', "%{$filters['search']}%")
-                        ->orWhere('barcode', 'like', "%{$filters['search']}%")),
-            ))
-            ->when($filters['category'] !== '', fn (Builder $query) => $query
-                ->whereIn('category_id', $this->categoryBranchIds((int) $filters['category'])))
-            ->when($filters['state'] !== '', fn (Builder $query) => $query
-                ->withPublicationState(ProductPublicationState::from($filters['state'])))
-            ->when($filters['type'] !== '', fn (Builder $query) => $query->where('type', $filters['type']))
-            ->when($filters['featured'] !== '', fn (Builder $query) => $query
-                ->where('is_featured', $filters['featured'] === 'yes'))
-            ->orderBy($filters['sort'], $filters['direction'] === 'desc' ? 'desc' : 'asc')
-            ->orderBy('id');
-    }
-
-    /**
-     * The chosen category and everything below it, so filtering by a parent
-     * shows the products filed under its subcategories too.
-     *
-     * @return array<int, int>
-     */
-    private function categoryBranchIds(int $categoryId): array
-    {
-        $category = Category::query()->find($categoryId);
-
-        if ($category === null) {
-            return [$categoryId];
-        }
-
-        return [$category->getKey(), ...$category->descendantIds()];
+            ->withCount(['variants']);
     }
 
     /**

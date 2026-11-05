@@ -1,6 +1,7 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
     Boxes,
+    FileUp,
     Images,
     MoreHorizontal,
     Package,
@@ -38,6 +39,7 @@ import { useTableQuery } from '@/hooks/use-table-query';
 import { formatRupiah, formatWeight } from '@/lib/format';
 import { index as productsIndex } from '@/routes/admin/products';
 import images from '@/routes/admin/products/images';
+import productImport from '@/routes/admin/products/import';
 import variants from '@/routes/admin/products/variants';
 import type {
     DataTableColumn,
@@ -133,6 +135,23 @@ export default function ProductsIndex({
                 Tambah Produk
             </Link>
         </Button>
+    );
+
+    // The bulk way in and out of the catalogue (P1-E3-T11). Only central staff
+    // may import; the export honours whatever filters are on screen and is
+    // reachable by everyone who can read the listing.
+    const toolbarActions = (
+        <>
+            {can.create && (
+                <Button variant="outline" asChild>
+                    <Link href={productImport.show()}>
+                        <FileUp aria-hidden />
+                        Impor / Ekspor
+                    </Link>
+                </Button>
+            )}
+            {addButton}
+        </>
     );
 
     const columns: DataTableColumn<ProductListItem>[] = [
@@ -251,7 +270,7 @@ export default function ProductsIndex({
                     onChange={table.setFilters}
                     onReset={table.reset}
                     isFiltered={table.isFiltered}
-                    actions={addButton}
+                    actions={toolbarActions}
                 />
 
                 <DataTable

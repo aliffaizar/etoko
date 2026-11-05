@@ -12,6 +12,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\User;
 use App\Support\CategoryTree;
+use App\Support\ProductListQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -159,7 +160,7 @@ class BranchProductController extends Controller
                         ->orWhere('barcode', 'like', "%{$filters['search']}%")),
             ))
             ->when($filters['category'] !== '', fn (Builder $query) => $query
-                ->whereIn('category_id', $this->categoryBranchIds((int) $filters['category'])))
+                ->whereIn('category_id', ProductListQuery::categoryBranchIds((int) $filters['category'])))
             ->when($filters['availability'] === 'unavailable', fn (Builder $query) => $query
                 ->whereHas('branchSettings', fn (Builder $settings) => $settings
                     ->where('branch_id', $branch->getKey())
@@ -192,23 +193,6 @@ class BranchProductController extends Controller
             'unavailable' => $unavailable,
             'available' => $total - $unavailable,
         ];
-    }
-
-    /**
-     * The chosen category and everything below it, so filtering by a parent
-     * shows the products filed under its subcategories too.
-     *
-     * @return array<int, int>
-     */
-    private function categoryBranchIds(int $categoryId): array
-    {
-        $category = Category::query()->find($categoryId);
-
-        if ($category === null) {
-            return [$categoryId];
-        }
-
-        return [$category->getKey(), ...$category->descendantIds()];
     }
 
     /**

@@ -13,6 +13,7 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Pricing\EffectivePriceResolver;
 use App\Support\CategoryTree;
+use App\Support\ProductListQuery;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -178,7 +179,7 @@ class BranchProductPriceController extends Controller
             ))
             ->when($filters['category'] !== '', fn (Builder $query) => $query
                 ->whereHas('product', fn (Builder $product) => $product
-                    ->whereIn('category_id', $this->categoryBranchIds((int) $filters['category']))))
+                    ->whereIn('category_id', ProductListQuery::categoryBranchIds((int) $filters['category']))))
             ->when($filters['pricing'] === 'custom', fn (Builder $query) => $query
                 ->whereHas('branchPrices', fn (Builder $prices) => $prices
                     ->where('branch_id', $branch->getKey())))
@@ -206,20 +207,6 @@ class BranchProductPriceController extends Controller
             'custom' => $prices->count(),
             'in_force' => $prices->filter(fn (BranchProductPrice $price): bool => $price->isInForce())->count(),
         ];
-    }
-
-    /**
-     * @return array<int, int>
-     */
-    private function categoryBranchIds(int $categoryId): array
-    {
-        $category = Category::query()->find($categoryId);
-
-        if ($category === null) {
-            return [$categoryId];
-        }
-
-        return [$category->getKey(), ...$category->descendantIds()];
     }
 
     /**

@@ -1,5 +1,6 @@
 import type { Auth } from '@/types/auth';
 import type { BreadcrumbItem } from '@/types/navigation';
+import type { FlashData } from '@/types/ui';
 
 declare module 'react' {
     interface InputHTMLAttributes<T> {
@@ -13,6 +14,11 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             sidebarOpen: boolean;
+            /**
+             * One-shot data from `Inertia::flash()`: the toast every write
+             * sends, and the import report of P1-E3-T11.
+             */
+            flash?: FlashData;
             [key: string]: unknown;
         };
         /**

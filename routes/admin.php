@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\ProductAttributeController;
 use App\Http\Controllers\Admin\ProductAttributeValueController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductImageController;
+use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\ProductVariantController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\UserController;
@@ -174,6 +175,24 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::get('create', [ProductController::class, 'create'])
                 ->middleware('can:products.create')
                 ->name('create');
+
+            // Declared before `{product}/...` so "import" and "export" are
+            // never read as a product's route key.
+            Route::get('import', [ProductImportController::class, 'show'])
+                ->middleware('can:products.create')
+                ->name('import.show');
+
+            Route::post('import', [ProductImportController::class, 'store'])
+                ->middleware('can:products.create')
+                ->name('import.store');
+
+            Route::get('import/template', [ProductImportController::class, 'template'])
+                ->middleware('can:products.create')
+                ->name('import.template');
+
+            Route::get('export', [ProductImportController::class, 'export'])
+                ->middleware('can:products.view')
+                ->name('export');
 
             Route::post('/', [ProductController::class, 'store'])
                 ->middleware('can:products.create')
