@@ -51,6 +51,8 @@ use Illuminate\Support\Carbon;
  * @property-read Product $product
  * @property-read Collection<int, ProductAttributeValue> $attributeValues
  * @property-read Collection<int, BranchProductPrice> $branchPrices
+ * @property-read Collection<int, Stock> $stocks
+ * @property-read Collection<int, StockMovement> $stockMovements
  */
 #[ObservedBy(ProductVariantObserver::class)]
 #[Fillable([
@@ -117,6 +119,29 @@ class ProductVariant extends Model
     }
 
     /**
+     * The per-warehouse stock rows of this variant (P1-E4-T1).
+     *
+     * A warehouse with no row here holds none; `Stock::quantityFor()` is what
+     * reads a missing row as zero.
+     *
+     * @return HasMany<Stock, $this>
+     */
+    public function stocks(): HasMany
+    {
+        return $this->hasMany(Stock::class);
+    }
+
+    /**
+     * Every recorded change to this variant's stock (P1-E4-T1).
+     *
+     * @return HasMany<StockMovement, $this>
+     */
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(StockMovement::class);
+    }
+
+    /**
      * The catalogue-wide price of this variant, before any branch override.
      *
      * A branch's own price takes precedence; `EffectivePriceResolver`
@@ -161,8 +186,9 @@ class ProductVariant extends Model
      * editor reads, so the button and the endpoint can never disagree — the
      * pattern `Branch::deletionBlockedReason()` set.
      *
-     * P1-E4-T1 adds a reason here: a variant holding stock or carrying stock
-     * movements must not leave either.
+     * A variant that holds stock or carries stock movements may not leave
+     * either: deleting it would make the warehouse's figure unexplainable and
+     * strand the ledger rows that explain it (P1-E4-T1).
      *
      * The sibling count comes from `Product::variantCount()`, which reuses a
      * `variants_count` the caller already has — so asking every row of the
@@ -181,6 +207,24 @@ class ProductVariant extends Model
 
         if ($this->product->variantCount() <= 1) {
             return 'Produk harus punya minimal satu varian, karena stok dan pesanan selalu menunjuk varian.';
+        }
+
+        // Asked across every branch, not through the relation: product writes
+        // are central (BR-1), but stock in *any* branch is still stock, and a
+        // branch-scoped read would miss it.
+        $holdsStock = Stock::acrossBranches()
+            ->where('product_variant_id', $this->getKey())
+            ->where(fn (Builder $query) => $query
+                ->where('quantity', '!=', 0)
+                ->orWhere('reserved_quantity', '!=', 0))
+            ->exists();
+
+        if ($holdsStock) {
+            return 'Varian ini masih memegang stok di gudang. Keluarkan atau pindahkan stoknya terlebih dahulu.';
+        }
+
+        if (StockMovement::acrossBranches()->where('product_variant_id', $this->getKey())->exists()) {
+            return 'Varian ini sudah punya riwayat pergerakan stok, jadi tidak dapat dihapus. Nonaktifkan varian bila tidak dijual lagi.';
         }
 
         return null;

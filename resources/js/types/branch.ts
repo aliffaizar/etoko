@@ -71,6 +71,11 @@ export type BranchWarehouse = {
     address: string | null;
     is_default: boolean;
     is_active: boolean;
+    /** False when the warehouse is the default one or still holds stock. */
+    can_delete: boolean;
+    delete_blocked_reason: string | null;
+    /** Units on the warehouse's shelves, across every variant. */
+    on_hand: number;
 };
 
 /** A staff account stationed at the branch. */

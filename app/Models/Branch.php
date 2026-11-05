@@ -85,6 +85,29 @@ class Branch extends Model
     }
 
     /**
+     * What this branch holds, across all of its warehouses (P1-E4-T1).
+     *
+     * `branch_id` is denormalised onto `stocks` precisely so this question can
+     * be answered without joining through `warehouses`.
+     *
+     * @return HasMany<Stock, $this>
+     */
+    public function stocks(): HasMany
+    {
+        return $this->hasMany(Stock::class);
+    }
+
+    /**
+     * Every recorded change to this branch's stock (P1-E4-T1).
+     *
+     * @return HasMany<StockMovement, $this>
+     */
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(StockMovement::class);
+    }
+
+    /**
      * @return HasMany<BranchOperatingHour, $this>
      */
     public function operatingHours(): HasMany

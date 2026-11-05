@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\Stock;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 
@@ -146,6 +148,47 @@ it('refuses to delete the default warehouse', function () {
         ->assertForbidden();
 
     expect($branch->warehouses()->count())->toBe(1);
+});
+
+it('refuses to delete a warehouse that still holds stock (P1-E4-T1)', function () {
+    $branch = Branch::factory()->create();
+    Warehouse::factory()->default()->for($branch)->create();
+    $warehouse = Warehouse::factory()->for($branch)->create(['code' => 'WH-02']);
+    Stock::factory()->inWarehouse($warehouse)->quantity(7)->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->delete(route('admin.branches.warehouses.destroy', [$branch, $warehouse]))
+        ->assertForbidden();
+
+    expect($branch->warehouses()->count())->toBe(2);
+});
+
+it('refuses to delete an empty warehouse that still carries stock movements (P1-E4-T1)', function () {
+    $branch = Branch::factory()->create();
+    Warehouse::factory()->default()->for($branch)->create();
+    $warehouse = Warehouse::factory()->for($branch)->create(['code' => 'WH-02']);
+    Stock::factory()->inWarehouse($warehouse)->quantity(0)->create();
+    StockMovement::factory()->inWarehouse($warehouse)->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->delete(route('admin.branches.warehouses.destroy', [$branch, $warehouse]))
+        ->assertForbidden();
+
+    expect($branch->warehouses()->count())->toBe(2);
+});
+
+it('tells the branch screen why a warehouse cannot be deleted', function () {
+    $branch = Branch::factory()->create();
+    Warehouse::factory()->default()->for($branch)->create();
+    $warehouse = Warehouse::factory()->for($branch)->create(['code' => 'WH-02']);
+    Stock::factory()->inWarehouse($warehouse)->quantity(7)->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->get(route('admin.branches.edit', $branch))
+        ->assertInertia(fn ($page) => $page
+            ->where('warehouses.1.can_delete', false)
+            ->where('warehouses.1.on_hand', 7)
+            ->where('warehouses.0.can_delete', false));
 });
 
 it('404s on a warehouse that belongs to another branch', function () {

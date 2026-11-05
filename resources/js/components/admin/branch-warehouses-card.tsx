@@ -102,10 +102,20 @@ export function BranchWarehousesCard({
                                     </p>
                                     <p className="truncate text-xs text-muted-foreground">
                                         {warehouse.code}
+                                        {` · ${warehouse.on_hand} unit stok`}
                                         {warehouse.address
                                             ? ` · ${warehouse.address}`
                                             : ''}
                                     </p>
+                                    {canManage &&
+                                        warehouse.delete_blocked_reason !==
+                                            null && (
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                {
+                                                    warehouse.delete_blocked_reason
+                                                }
+                                            </p>
+                                        )}
                                 </div>
 
                                 {canManage && (
@@ -141,18 +151,21 @@ export function BranchWarehousesCard({
                                         >
                                             Ubah
                                         </Button>
-                                        {!warehouse.is_default && (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="text-destructive hover:text-destructive"
-                                                onClick={() =>
-                                                    setPendingDelete(warehouse)
-                                                }
-                                            >
-                                                Hapus
-                                            </Button>
-                                        )}
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-destructive hover:text-destructive"
+                                            disabled={!warehouse.can_delete}
+                                            title={
+                                                warehouse.delete_blocked_reason ??
+                                                undefined
+                                            }
+                                            onClick={() =>
+                                                setPendingDelete(warehouse)
+                                            }
+                                        >
+                                            Hapus
+                                        </Button>
                                     </div>
                                 )}
                             </li>

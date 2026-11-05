@@ -1,10 +1,15 @@
 <?php
 
 use App\Enums\ProductAttributeType;
+use App\Models\Branch;
 use App\Models\Product;
 use App\Models\ProductAttribute;
 use App\Models\ProductAttributeValue;
 use App\Models\ProductVariant;
+use App\Models\Stock;
+use App\Models\StockMovement;
+use App\Models\Warehouse;
+use App\Services\Branch\BranchContext;
 use Illuminate\Database\QueryException;
 
 /*
@@ -131,4 +136,46 @@ it('cascades the delete of an attribute to its values', function () {
     $attribute->delete();
 
     expect(ProductAttributeValue::count())->toBe(0);
+});
+
+it('refuses to delete a variant that still holds stock', function () {
+    $product = Product::factory()->variable()->create();
+    $default = ProductVariant::factory()->for($product)->default()->create();
+    $extra = ProductVariant::factory()->for($product)->create();
+    Stock::factory()->forVariant($extra)->quantity(4)->create();
+
+    expect($extra->isDeletable())->toBeFalse()
+        ->and($extra->deletionBlockedReason())->toContain('masih memegang stok')
+        ->and($default->isDeletable())->toBeFalse();
+});
+
+it('refuses to delete a variant that carries stock movements, even at zero stock', function () {
+    $product = Product::factory()->variable()->create();
+    ProductVariant::factory()->for($product)->default()->create();
+    $extra = ProductVariant::factory()->for($product)->create();
+    Stock::factory()->forVariant($extra)->quantity(0)->create();
+    StockMovement::factory()->forVariant($extra)->create();
+
+    expect($extra->deletionBlockedReason())->toContain('riwayat pergerakan stok');
+});
+
+it('still deletes a variant whose stock rows are all empty and unused', function () {
+    $product = Product::factory()->variable()->create();
+    ProductVariant::factory()->for($product)->default()->create();
+    $extra = ProductVariant::factory()->for($product)->create();
+    Stock::factory()->forVariant($extra)->quantity(0)->create();
+
+    expect($extra->isDeletable())->toBeTrue();
+});
+
+it('sees stock a variant holds in another branch', function () {
+    $product = Product::factory()->variable()->create();
+    ProductVariant::factory()->for($product)->default()->create();
+    $extra = ProductVariant::factory()->for($product)->create();
+    $elsewhere = Warehouse::factory()->default()->for(Branch::factory())->create();
+    Stock::factory()->inWarehouse($elsewhere)->forVariant($extra)->quantity(9)->create();
+
+    app(BranchContext::class)->restrictTo(Branch::factory()->create()->id);
+
+    expect($extra->isDeletable())->toBeFalse();
 });

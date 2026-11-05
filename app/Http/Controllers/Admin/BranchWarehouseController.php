@@ -80,11 +80,9 @@ class BranchWarehouseController extends Controller
     {
         $this->authorize('manageWarehouses', $branch);
 
-        abort_if(
-            $warehouse->is_default,
-            403,
-            'Gudang utama tidak dapat dihapus. Tunjuk gudang lain sebagai gudang utama terlebih dahulu.',
-        );
+        $blockedReason = $warehouse->deletionBlockedReason();
+
+        abort_if($blockedReason !== null, 403, $blockedReason ?? '');
 
         $warehouse->delete();
 

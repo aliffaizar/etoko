@@ -83,7 +83,12 @@ class BranchController extends Controller
 
         $branch->load([
             'operatingHours' => fn ($query) => $query->orderBy('day_of_week'),
-            'warehouses' => fn ($query) => $query->orderByDesc('is_default')->orderBy('code'),
+            // `stocks_sum_quantity` feeds the warehouse cards' on-hand figure
+            // and saves `deletionBlockedReason()` a query per warehouse.
+            'warehouses' => fn ($query) => $query
+                ->withSum('stocks', 'quantity')
+                ->orderByDesc('is_default')
+                ->orderBy('code'),
             'users.roles:id,name',
         ]);
 
@@ -270,19 +275,32 @@ class BranchController extends Controller
     }
 
     /**
-     * @return array<int, array{id: int, code: string, name: string, address: string|null, is_default: bool, is_active: bool}>
+     * The branch's warehouses, each carrying why it may not be deleted.
+     *
+     * The reason comes from `Warehouse::deletionBlockedReason()`, the same
+     * source `BranchWarehouseController::destroy()` refuses with, so the
+     * button and the endpoint cannot disagree (P1-E4-T1).
+     *
+     * @return array<int, array{id: int, code: string, name: string, address: string|null, is_default: bool, is_active: bool, can_delete: bool, delete_blocked_reason: string|null, on_hand: int}>
      */
     private function warehouses(Branch $branch): array
     {
         return $branch->warehouses
-            ->map(fn (Warehouse $warehouse): array => [
-                'id' => $warehouse->id,
-                'code' => $warehouse->code,
-                'name' => $warehouse->name,
-                'address' => $warehouse->address,
-                'is_default' => $warehouse->is_default,
-                'is_active' => $warehouse->is_active,
-            ])
+            ->map(function (Warehouse $warehouse): array {
+                $blockedReason = $warehouse->deletionBlockedReason();
+
+                return [
+                    'id' => $warehouse->id,
+                    'code' => $warehouse->code,
+                    'name' => $warehouse->name,
+                    'address' => $warehouse->address,
+                    'is_default' => $warehouse->is_default,
+                    'is_active' => $warehouse->is_active,
+                    'can_delete' => $blockedReason === null,
+                    'delete_blocked_reason' => $blockedReason,
+                    'on_hand' => $warehouse->onHandQuantity(),
+                ];
+            })
             ->all();
     }
 
