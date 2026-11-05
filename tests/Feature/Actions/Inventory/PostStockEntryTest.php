@@ -37,7 +37,8 @@ it('moves the stock of every line and writes a ledger row for each', function ()
     expect($posted->status)->toBe(StockDocumentStatus::Posted)
         ->and($posted->posted_by)->toBe($actor->getKey())
         ->and($posted->posted_at)->not->toBeNull()
-        ->and(Stock::acrossBranches()->sum('quantity'))->toBe(14)
+        // Cast because MySQL returns an aggregate as a string and SQLite as an int.
+        ->and((int) Stock::acrossBranches()->sum('quantity'))->toBe(14)
         ->and(StockMovement::acrossBranches()->count())->toBe(2);
 
     $movement = StockMovement::acrossBranches()->where('product_variant_id', $first->id)->sole();

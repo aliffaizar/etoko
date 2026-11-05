@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Branch\DashboardController;
+use App\Http\Controllers\Branch\NotificationController;
 use App\Http\Controllers\Branch\StockController;
 use App\Http\Controllers\Branch\StockEntryController;
 use App\Http\Controllers\Branch\StockIssueController;
@@ -25,6 +26,15 @@ Route::middleware(['auth', 'verified', 'branch'])
         Route::get('/', DashboardController::class)
             ->middleware('can:dashboard.branch.view')
             ->name('dashboard');
+
+        /*
+         * The signed-in user's own notification feed (P1-E4-T9).
+         *
+         * No permission: a notification belongs to one user and the
+         * relationship is what scopes it, so there is nobody else's to name.
+         */
+        Route::post('notifications/read', [NotificationController::class, 'markAllRead'])
+            ->name('notifications.read');
 
         /*
          * Stock per warehouse (P1-E4-T3, T4, T8).

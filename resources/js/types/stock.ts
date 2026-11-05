@@ -269,3 +269,39 @@ export type StockLineDraft = {
     /** The warehouse figure at the moment the line was added, for guidance only. */
     available: number | null;
 };
+
+/*
+ * Low stock on the branch dashboard (P1-E4-T9).
+ */
+
+/** One row of the dashboard's low-stock panel, read from `stocks`. */
+export type LowStockRow = {
+    id: number;
+    product_variant_id: number;
+    sku: string;
+    product_name: string;
+    warehouse_id: number;
+    warehouse_name: string;
+    quantity: number;
+    min_quantity: number;
+    /** How far below the minimum the figure is; what the panel sorts by. */
+    shortfall: number;
+};
+
+/**
+ * One stored low-stock alert.
+ *
+ * The figures are the ones from the moment the alert fired, not the current
+ * ones — the feed is a record, the panel beside it is the situation.
+ */
+export type LowStockAlert = {
+    id: string;
+    is_read: boolean;
+    created_at: string | null;
+    message: string;
+    sku: string;
+    product_name: string;
+    warehouse_name: string;
+    quantity: number;
+    min_quantity: number;
+};
