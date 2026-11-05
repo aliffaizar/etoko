@@ -6,6 +6,8 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
+use App\Models\StockEntry;
+use App\Models\StockEntryItem;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -484,4 +486,35 @@ it('shows the current figures alongside the history', function () {
             ->where('stock.on_hand', 4)
             ->where('stock.available', 3)
             ->where('stock.is_low', true));
+});
+
+it('names the document behind a movement in the history', function () {
+    [$branch, $warehouse] = branchWithWarehouse();
+    $target = variant();
+    $entry = StockEntry::factory()->inWarehouse($warehouse)->create();
+    StockEntryItem::factory()->for($entry, 'stockEntry')->forVariant($target)->quantity(9)->create();
+
+    $actor = User::factory()->staffGudang($branch)->create();
+    $this->actingAs($actor)->post(route('branch.stock-entries.post', $entry));
+
+    $this->actingAs($actor)
+        ->get(route('branch.stocks.movements', $target))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->has('movements.data', 1)
+            ->where('movements.data.0.type', 'entry_in')
+            ->where('movements.data.0.reference_label', $entry->code));
+});
+
+it('renders the history of a variant whose own name is null', function () {
+    [$branch, $warehouse] = branchWithWarehouse();
+    $target = variant();
+    $target->update(['name' => null]);
+    StockMovement::factory()->inWarehouse($warehouse)->forVariant($target)->create();
+
+    $this->actingAs(User::factory()->staffGudang($branch)->create())
+        ->get(route('branch.stocks.movements', $target))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('variant.display_name', $target->product->name));
 });

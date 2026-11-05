@@ -204,7 +204,11 @@ class StockController extends Controller
     private function paginatedMovements(Warehouse $warehouse, ProductVariant $variant, array $filters): LengthAwarePaginator
     {
         return StockMovement::acrossBranches()
-            ->with('createdBy:id,name')
+            // `reference` is eager-loaded because `referenceLabel()` reads the
+            // document's code through it, and `Model::preventLazyLoading()` is
+            // on. Eager-loading a morph here also keeps the history at two
+            // queries instead of one per row.
+            ->with(['createdBy:id,name', 'reference'])
             ->where('warehouse_id', $warehouse->getKey())
             ->forVariant($variant->getKey())
             ->when($filters['type'] !== '', fn ($query) => $query->where('type', $filters['type']))
