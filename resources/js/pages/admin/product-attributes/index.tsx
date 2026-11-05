@@ -161,9 +161,14 @@ function AttributeCard({
                     <div className="min-w-0">
                         <CardTitle className="flex flex-wrap items-center gap-2">
                             {attribute.name}
-                            <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                                {attribute.type_label}
-                            </span>
+                            {/* An attribute named after its own type — "Warna"
+                                of type "Warna" — would read as a stutter, so
+                                the badge is dropped when it adds nothing. */}
+                            {attribute.type_label !== attribute.name && (
+                                <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+                                    {attribute.type_label}
+                                </span>
+                            )}
                         </CardTitle>
                         <CardDescription>
                             <span className="font-mono">{attribute.slug}</span>

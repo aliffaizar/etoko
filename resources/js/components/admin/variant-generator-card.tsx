@@ -1,6 +1,6 @@
 import { router } from '@inertiajs/react';
 import { Link2, Sparkles, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import ProductVariantController from '@/actions/App/Http/Controllers/Admin/ProductVariantController';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -32,19 +32,16 @@ type VariantGeneratorCardProps = {
 
 /** One row of the builder: an attribute and the values picked under it. */
 type OptionGroup = {
-    /** Stable across re-renders, so React keys survive a group being removed. */
+    /**
+     * React key only, so a group keeps its identity when a sibling above it is
+     * removed. Never put this in the DOM: the counter advances on the client
+     * and not on the server, so an id built from it would differ between the
+     * SSR-rendered HTML and the hydrated tree. DOM ids come from `useId()`.
+     */
     key: number;
     attributeId: number | null;
     valueIds: number[];
 };
-
-let nextGroupKey = 0;
-
-function emptyGroup(): OptionGroup {
-    nextGroupKey += 1;
-
-    return { key: nextGroupKey, attributeId: null, valueIds: [] };
-}
 
 /**
  * Builds a product's variants from the options it varies by (P1-E3-T6).
@@ -63,7 +60,19 @@ export function VariantGeneratorCard({
     attributes,
     limits,
 }: VariantGeneratorCardProps) {
-    const [groups, setGroups] = useState<OptionGroup[]>([emptyGroup()]);
+    // SSR-stable prefix for the field ids; `useId()` is what React guarantees
+    // matches between the server render and hydration.
+    const fieldId = useId();
+    const nextGroupKey = useRef(1);
+    const newGroup = (): OptionGroup => ({
+        key: nextGroupKey.current++,
+        attributeId: null,
+        valueIds: [],
+    });
+
+    const [groups, setGroups] = useState<OptionGroup[]>(() => [
+        { key: 0, attributeId: null, valueIds: [] },
+    ]);
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState<string | undefined>(undefined);
 
@@ -113,7 +122,7 @@ export function VariantGeneratorCard({
                         Object.values(errors)[0] ??
                             'Varian gagal dibuat. Periksa pilihan atribut.',
                     ),
-                onSuccess: () => setGroups([emptyGroup()]),
+                onSuccess: () => setGroups([newGroup()]),
             },
         );
     };
@@ -165,7 +174,7 @@ export function VariantGeneratorCard({
                             >
                                 <div className="grid gap-2 sm:w-56 sm:shrink-0">
                                     <Label
-                                        htmlFor={`generator_attribute_${group.key}`}
+                                        htmlFor={`${fieldId}-attribute-${index}`}
                                     >
                                         Atribut {index + 1}
                                     </Label>
@@ -183,7 +192,7 @@ export function VariantGeneratorCard({
                                         }
                                     >
                                         <SelectTrigger
-                                            id={`generator_attribute_${group.key}`}
+                                            id={`${fieldId}-attribute-${index}`}
                                             className="w-full"
                                         >
                                             <SelectValue placeholder="Pilih atribut…" />
@@ -314,7 +323,7 @@ export function VariantGeneratorCard({
                             groups.length >= 5
                         }
                         onClick={() =>
-                            setGroups((current) => [...current, emptyGroup()])
+                            setGroups((current) => [...current, newGroup()])
                         }
                     >
                         Tambah atribut
