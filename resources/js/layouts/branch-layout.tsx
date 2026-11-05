@@ -1,4 +1,5 @@
 import {
+    Boxes,
     FolderTree,
     LayoutGrid,
     Package,
@@ -12,6 +13,7 @@ import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { dashboard } from '@/routes/branch';
+import stocks from '@/routes/branch/stocks';
 import { edit as branchEdit } from '@/routes/admin/branches';
 import branchPrices from '@/routes/admin/branches/prices';
 import branchProducts from '@/routes/admin/branches/products';
@@ -21,8 +23,8 @@ import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
 
 /**
- * Menu of the branch panel. Inventory, orders and reports are added by their
- * own epics; see docs/05-roadmap.md.
+ * Menu of the branch panel. Orders and reports are added by their own epics;
+ * see docs/05-roadmap.md.
  *
  * A branch admin manages their own branch and staff on the central screens —
  * the permission matrix gives them `branches.update` and `users.view` for their
@@ -47,6 +49,21 @@ function useBranchNavGroups(): PanelNavGroup[] {
             ],
         },
     ];
+
+    // Stock is the branch's own business, unlike the catalogue: a branch admin
+    // and their warehouse staff correct their own figures (P1-E4-T3). A
+    // cashier holds `stocks.view` and sees the screen read-only.
+    groups.push({
+        label: 'Inventaris',
+        items: [
+            {
+                title: 'Stok',
+                href: stocks.index(),
+                icon: Boxes,
+                permission: 'stocks.view',
+            },
+        ],
+    });
 
     // Products and categories are central master data every branch sells from
     // (BR-1), so the branch panel links to the same read-only screens rather

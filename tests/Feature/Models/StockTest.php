@@ -20,8 +20,20 @@ it('never reports a negative sellable quantity', function () {
 });
 
 it('reads a missing row as zero rather than unknown', function () {
-    expect(Stock::quantityFor(null))->toBe(0)
-        ->and(Stock::availableQuantityFor(null))->toBe(0);
+    $missing = Stock::orZeroed(null);
+
+    expect($missing->quantity)->toBe(0)
+        ->and($missing->reserved_quantity)->toBe(0)
+        ->and($missing->available_quantity)->toBe(0)
+        ->and($missing->min_quantity)->toBe(0)
+        ->and($missing->isLow())->toBeFalse()
+        ->and($missing->exists)->toBeFalse();
+});
+
+it('hands back the row it was given when there is one', function () {
+    $stock = Stock::factory()->quantity(3)->create();
+
+    expect(Stock::orZeroed($stock)->quantity)->toBe(3);
 });
 
 it('calls a row low only once somebody has set a minimum', function () {

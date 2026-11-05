@@ -121,7 +121,7 @@ class ProductVariant extends Model
     /**
      * The per-warehouse stock rows of this variant (P1-E4-T1).
      *
-     * A warehouse with no row here holds none; `Stock::quantityFor()` is what
+     * A warehouse with no row here holds none; `Stock::orZeroed()` is what
      * reads a missing row as zero.
      *
      * @return HasMany<Stock, $this>

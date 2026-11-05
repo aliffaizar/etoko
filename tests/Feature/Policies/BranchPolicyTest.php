@@ -96,3 +96,51 @@ it('refuses a branch admin whose account has no branch assigned', function () {
 
     expect($actor->can('update', $branch))->toBeFalse();
 });
+
+/*
+ * Stock is the branch's own business, unlike the catalogue (P1-E4-T3).
+ */
+
+it('lets a branch admin and warehouse staff adjust their own stock', function (UserRole $role) {
+    $branch = Branch::factory()->create();
+    $actor = User::factory()->withRole($role)->forBranch($branch)->create();
+
+    expect($actor->can('viewStock', $branch))->toBeTrue()
+        ->and($actor->can('adjustStock', $branch))->toBeTrue();
+})->with([
+    'admin cabang' => [UserRole::AdminCabang],
+    'staff gudang' => [UserRole::StaffGudang],
+]);
+
+it('lets a cashier read stock without adjusting it', function () {
+    $branch = Branch::factory()->create();
+    $actor = User::factory()->kasir($branch)->create();
+
+    expect($actor->can('viewStock', $branch))->toBeTrue()
+        ->and($actor->can('adjustStock', $branch))->toBeFalse();
+});
+
+it('keeps a branch account out of another branch stock', function () {
+    $mine = Branch::factory()->create();
+    $theirs = Branch::factory()->create();
+    $actor = User::factory()->staffGudang($mine)->create();
+
+    expect($actor->can('viewStock', $theirs))->toBeFalse()
+        ->and($actor->can('adjustStock', $theirs))->toBeFalse();
+});
+
+it('lets central staff adjust the stock of any branch', function () {
+    $branch = Branch::factory()->create();
+    $actor = User::factory()->adminPusat()->create();
+
+    expect($actor->can('viewStock', $branch))->toBeTrue()
+        ->and($actor->can('adjustStock', $branch))->toBeTrue();
+});
+
+it('refuses customers any sight of stock', function () {
+    $branch = Branch::factory()->create();
+    $actor = User::factory()->customer()->create();
+
+    expect($actor->can('viewStock', $branch))->toBeFalse()
+        ->and($actor->can('adjustStock', $branch))->toBeFalse();
+});

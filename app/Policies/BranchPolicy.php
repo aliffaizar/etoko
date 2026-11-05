@@ -131,6 +131,33 @@ class BranchPolicy
     }
 
     /**
+     * Reading what this branch holds in its warehouses (P1-E4-T3).
+     *
+     * Every panel role down to the cashier holds `stocks.view`, because
+     * "is it on the shelf?" is a question all of them get asked. BR-3 keeps
+     * each of them to their own branch.
+     */
+    public function viewStock(User $user, Branch $branch): bool
+    {
+        return $user->can('stocks.view') && $this->isWithinReach($user, $branch);
+    }
+
+    /**
+     * Changing what this branch holds, by hand or through a document
+     * (P1-E4-T2, T4, T5, T6, T7).
+     *
+     * Unlike the catalogue, stock is the branch's own business: a branch admin
+     * and their warehouse staff correct their own figures, so this is *not*
+     * central-only. A cashier is deliberately left out — they sell stock, they
+     * do not count it — and the matrix gives them `stocks.view` without
+     * `stocks.adjust` for exactly that reason.
+     */
+    public function adjustStock(User $user, Branch $branch): bool
+    {
+        return $user->can('stocks.adjust') && $this->isWithinReach($user, $branch);
+    }
+
+    /**
      * Whether the branch falls inside the actor's branch scope (BR-3).
      */
     private function isWithinReach(User $user, Branch $branch): bool

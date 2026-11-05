@@ -1,4 +1,5 @@
 import {
+    Boxes,
     FolderTree,
     LayoutGrid,
     Package,
@@ -18,6 +19,7 @@ import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import stocks from '@/routes/branch/stocks';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
 
 /**
@@ -65,6 +67,21 @@ const navGroups: PanelNavGroup[] = [
                 href: branchesIndex(),
                 icon: Store,
                 permission: 'branches.view',
+            },
+        ],
+    },
+    {
+        // Stock lives in the branch panel, because stock lives in a branch.
+        // Central staff supervise it there with a branch selector, rather than
+        // through a second screen that would have to agree with the first
+        // (P1-E4-T3).
+        label: 'Inventaris',
+        items: [
+            {
+                title: 'Stok Cabang',
+                href: stocks.index(),
+                icon: Boxes,
+                permission: 'stocks.view',
             },
         ],
     },

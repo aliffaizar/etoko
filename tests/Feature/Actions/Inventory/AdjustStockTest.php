@@ -17,7 +17,7 @@ function adjust(): AdjustStock
 it('adds to the figure and records who said so and why', function () {
     $warehouse = Warehouse::factory()->default()->create();
     $variant = Product::factory()->withDefaultVariant()->create()->variants()->sole();
-    $actor = User::factory()->staffGudang()->for($warehouse->branch)->create();
+    $actor = User::factory()->staffGudang($warehouse->branch)->create();
     Stock::factory()->inWarehouse($warehouse)->forVariant($variant)->quantity(10)->create();
 
     adjust()->handle($warehouse, $variant, 3, 'Dua dus ketemu di rak belakang', $actor);

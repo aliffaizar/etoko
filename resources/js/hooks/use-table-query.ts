@@ -16,6 +16,16 @@ export type UseTableQueryOptions = {
     /** Default sort column, used when the URL carries none. */
     defaultSort?: string;
     defaultDirection?: SortDirection;
+    /**
+     * Query keys that say *where* the listing is looking rather than *what* it
+     * is narrowed to — the branch and warehouse of the stock screens, for
+     * instance.
+     *
+     * They survive `reset()` and do not make `isFiltered` true, because
+     * "reset the filters" must not quietly move somebody to another
+     * warehouse, and standing in a warehouse is not a filter to clear.
+     */
+    scopeKeys?: string[];
 };
 
 export type UseTableQueryReturn = {
@@ -49,6 +59,7 @@ export function useTableQuery({
     only,
     defaultSort,
     defaultDirection = 'asc',
+    scopeKeys = [],
 }: UseTableQueryOptions = {}): UseTableQueryReturn {
     const url = usePage().url;
     const [isLoading, setIsLoading] = useState(false);
@@ -118,12 +129,20 @@ export function useTableQuery({
         [defaultDirection, defaultSort, values.direction, values.sort],
     );
 
+    const ignoredKeys = useMemo(
+        () => [...RESERVED_KEYS, ...scopeKeys],
+        // `scopeKeys` is a literal at every call site, so its identity changes
+        // each render while its contents do not.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [scopeKeys.join(',')],
+    );
+
     const isFiltered = useMemo(
         () =>
             Object.entries(values).some(
-                ([key, value]) => !RESERVED_KEYS.includes(key) && value !== '',
+                ([key, value]) => !ignoredKeys.includes(key) && value !== '',
             ),
-        [values],
+        [ignoredKeys, values],
     );
 
     return {
@@ -152,7 +171,11 @@ export function useTableQuery({
         reset: () =>
             router.get(
                 path,
-                {},
+                Object.fromEntries(
+                    Object.entries(values).filter(([key]) =>
+                        scopeKeys.includes(key),
+                    ),
+                ),
                 {
                     only,
                     preserveState: true,

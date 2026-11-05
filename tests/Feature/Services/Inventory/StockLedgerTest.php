@@ -130,7 +130,7 @@ it('refuses a movement of zero, which would record nothing', function () {
 
 it('points the movement at the document that caused it', function () {
     $warehouse = Warehouse::factory()->default()->create();
-    $actor = User::factory()->staffGudang()->for($warehouse->branch)->create();
+    $actor = User::factory()->staffGudang($warehouse->branch)->create();
 
     DB::transaction(fn () => ledger()->apply(
         warehouse: $warehouse,

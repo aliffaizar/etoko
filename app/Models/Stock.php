@@ -19,9 +19,9 @@ use Illuminate\Support\Carbon;
  *
  * A row is created the first time something is said about the pair, so the
  * absence of a row means zero rather than unknown. Ask through
- * `Stock::quantityFor()` / `availableQuantityFor()` rather than reading a
- * possibly-missing row, the same way `BranchProduct::availabilityFor()` reads
- * a missing availability row as the default.
+ * `Stock::orZeroed()` rather than reading a possibly-missing row, the same way
+ * `BranchProduct::availabilityFor()` reads a missing availability row as the
+ * default.
  *
  * `quantity`, `reserved_quantity` and the ledger are written **only** by
  * `App\Services\Inventory\StockLedger`, which keeps `stocks` and
@@ -106,21 +106,32 @@ class Stock extends Model
     }
 
     /**
-     * On-hand quantity for a (warehouse, variant) pair, reading a missing row
-     * as zero.
+     * A row that stands for "nothing has been said about this pair yet".
+     *
+     * Rows are created on demand, so a (warehouse, variant) pair without one
+     * holds zero rather than being unknown. Reading through this keeps every
+     * caller from re-deciding what a missing row means — and from writing
+     * `$stock?->quantity ?? 0` five times with one of them wrong.
+     *
+     * Never saved. It carries no keys, so anything that tried would fail.
      */
-    public static function quantityFor(?self $stock): int
+    public static function zeroed(): self
     {
-        return $stock instanceof self ? $stock->quantity : 0;
+        return new self([
+            'quantity' => 0,
+            'reserved_quantity' => 0,
+            'min_quantity' => 0,
+            'max_quantity' => null,
+            'shelf_location' => null,
+        ]);
     }
 
     /**
-     * Sellable quantity for a (warehouse, variant) pair, reading a missing row
-     * as zero.
+     * The row for a pair, or a zeroed stand-in when there is none.
      */
-    public static function availableQuantityFor(?self $stock): int
+    public static function orZeroed(?self $stock): self
     {
-        return $stock instanceof self ? $stock->available_quantity : 0;
+        return $stock ?? self::zeroed();
     }
 
     /**
