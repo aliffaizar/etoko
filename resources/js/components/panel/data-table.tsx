@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Inbox } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Empty,
     EmptyDescription,
@@ -32,6 +33,7 @@ import type {
     DataTableAlign,
     DataTableColumn,
     DataTableEmptyState,
+    DataTableSelection,
     PaginatorMeta,
     TableSort,
 } from '@/types/data-table';
@@ -56,6 +58,11 @@ export type DataTableProps<TRow> = {
     /** Builds a real href per page so links stay openable in a new tab. */
     pageUrl?: (page: number) => string;
     isLoading?: boolean;
+    /**
+     * Row checkboxes, for a listing with an action over many rows at once.
+     * Omit it and no selection column is drawn at all.
+     */
+    selection?: DataTableSelection<TRow>;
     empty?: DataTableEmptyState;
     /** Plural noun for the result summary, e.g. "pengguna". */
     rowLabel?: string;
@@ -80,12 +87,58 @@ export function DataTable<TRow>({
     goToPage,
     pageUrl,
     isLoading = false,
+    selection,
     empty,
     rowLabel = 'baris',
     rowClassName,
 }: DataTableProps<TRow>) {
-    const columnCount = columns.length;
+    const columnCount = columns.length + (selection ? 1 : 0);
     const showSkeleton = isLoading && rows.length === 0;
+
+    const selectableRows = selection
+        ? rows.filter((row) => selection.isSelectable?.(row) ?? true)
+        : [];
+    const selectedSet = new Set(selection?.selectedKeys ?? []);
+    const selectedOnPage = selectableRows.filter((row) =>
+        selectedSet.has(rowKey(row)),
+    ).length;
+    const allOnPageSelected =
+        selectableRows.length > 0 && selectedOnPage === selectableRows.length;
+
+    const toggleRow = (row: TRow, isSelected: boolean): void => {
+        if (!selection) {
+            return;
+        }
+
+        const key = rowKey(row);
+
+        selection.onChange(
+            isSelected
+                ? [...selection.selectedKeys.filter((k) => k !== key), key]
+                : selection.selectedKeys.filter((k) => k !== key),
+        );
+    };
+
+    const togglePage = (isSelected: boolean): void => {
+        if (!selection) {
+            return;
+        }
+
+        const pageKeys = selectableRows.map(rowKey);
+
+        // Keys selected on other pages are kept: paging through a filter and
+        // ticking as you go is exactly how a bulk change gets assembled.
+        selection.onChange(
+            isSelected
+                ? [
+                      ...selection.selectedKeys.filter(
+                          (k) => !pageKeys.includes(k),
+                      ),
+                      ...pageKeys,
+                  ]
+                : selection.selectedKeys.filter((k) => !pageKeys.includes(k)),
+        );
+    };
 
     return (
         <div className="flex flex-col gap-4">
@@ -99,6 +152,24 @@ export function DataTable<TRow>({
                 <Table>
                     <TableHeader className="bg-muted/50">
                         <TableRow>
+                            {selection && (
+                                <TableHead className="w-10">
+                                    <Checkbox
+                                        aria-label="Pilih semua baris di halaman ini"
+                                        checked={
+                                            allOnPageSelected
+                                                ? true
+                                                : selectedOnPage > 0
+                                                  ? 'indeterminate'
+                                                  : false
+                                        }
+                                        disabled={selectableRows.length === 0}
+                                        onCheckedChange={(checked) =>
+                                            togglePage(checked === true)
+                                        }
+                                    />
+                                </TableHead>
+                            )}
                             {columns.map((column) => (
                                 <TableHead
                                     key={column.key}
@@ -161,7 +232,33 @@ export function DataTable<TRow>({
                             <TableRow
                                 key={rowKey(row)}
                                 className={rowClassName?.(row)}
+                                data-selected={
+                                    selectedSet.has(rowKey(row)) || undefined
+                                }
                             >
+                                {selection && (
+                                    <TableCell className="w-10">
+                                        <Checkbox
+                                            aria-label={
+                                                selection.rowLabel?.(row) ??
+                                                'Pilih baris ini'
+                                            }
+                                            checked={selectedSet.has(
+                                                rowKey(row),
+                                            )}
+                                            disabled={
+                                                !(
+                                                    selection.isSelectable?.(
+                                                        row,
+                                                    ) ?? true
+                                                )
+                                            }
+                                            onCheckedChange={(checked) =>
+                                                toggleRow(row, checked === true)
+                                            }
+                                        />
+                                    </TableCell>
+                                )}
                                 {columns.map((column) => (
                                     <TableCell
                                         key={column.key}

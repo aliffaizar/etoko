@@ -1,4 +1,11 @@
-import { FolderTree, LayoutGrid, Package, Store, Users } from 'lucide-react';
+import {
+    FolderTree,
+    LayoutGrid,
+    Package,
+    Store,
+    Tags,
+    Users,
+} from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
@@ -6,6 +13,8 @@ import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { dashboard } from '@/routes/branch';
 import { edit as branchEdit } from '@/routes/admin/branches';
+import branchPrices from '@/routes/admin/branches/prices';
+import branchProducts from '@/routes/admin/branches/products';
 import { index as categoriesIndex } from '@/routes/admin/categories';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as usersIndex } from '@/routes/admin/users';
@@ -77,6 +86,21 @@ function useBranchNavGroups(): PanelNavGroup[] {
                     href: usersIndex(),
                     icon: Users,
                     permission: 'users.view',
+                },
+                // What this branch sells from the shared catalogue, and at
+                // what price (P1-E3-T9, P1-E3-T10). Read-only here: both are
+                // set centrally, and the policies demand a central actor.
+                {
+                    title: 'Ketersediaan Produk',
+                    href: branchProducts.index(auth.branch.id),
+                    icon: Package,
+                    permission: 'products.view',
+                },
+                {
+                    title: 'Harga Khusus',
+                    href: branchPrices.index(auth.branch.id),
+                    icon: Tags,
+                    permission: 'branch_prices.view',
                 },
             ],
         });

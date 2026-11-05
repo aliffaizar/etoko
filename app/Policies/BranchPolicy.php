@@ -79,6 +79,58 @@ class BranchPolicy
     }
 
     /**
+     * Reading which products this branch sells and at what price
+     * (P1-E3-T9, P1-E3-T10).
+     *
+     * A branch admin holds `products.view` and `branch_prices.view` so they
+     * can see what their own branch offers; BR-3 keeps them out of another
+     * branch's.
+     */
+    public function viewCatalog(User $user, Branch $branch): bool
+    {
+        return $user->can('products.view') && $this->isWithinReach($user, $branch);
+    }
+
+    /**
+     * Switching products on and off for this branch (P1-E3-T9).
+     *
+     * Central only. Per-branch availability is listed under Product Management
+     * (Pusat) in the brief, and it decides what buyers see in a storefront the
+     * whole company answers for — so a branch admin reads it and does not set
+     * it, exactly as they read the catalogue without editing it (BR-1).
+     */
+    public function manageAvailability(User $user, Branch $branch): bool
+    {
+        return $user->can('products.update')
+            && $user->isCentral()
+            && $this->isWithinReach($user, $branch);
+    }
+
+    /**
+     * Reading this branch's own prices (P1-E3-T10).
+     */
+    public function viewPrices(User $user, Branch $branch): bool
+    {
+        return $user->can('branch_prices.view') && $this->isWithinReach($user, $branch);
+    }
+
+    /**
+     * Setting this branch's own prices (P1-E3-T10).
+     *
+     * Central only, for the same reason as availability: the branch price
+     * matrix is maintained centrally, and `branch_prices.manage` is given to
+     * no branch role in the baseline. Demanding a central actor outright means
+     * a branch admin handed the permission through the Role screen still
+     * cannot reprice their own branch.
+     */
+    public function managePrices(User $user, Branch $branch): bool
+    {
+        return $user->can('branch_prices.manage')
+            && $user->isCentral()
+            && $this->isWithinReach($user, $branch);
+    }
+
+    /**
      * Whether the branch falls inside the actor's branch scope (BR-3).
      */
     private function isWithinReach(User $user, Branch $branch): bool

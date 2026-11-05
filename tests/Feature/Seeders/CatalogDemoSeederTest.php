@@ -1,10 +1,14 @@
 <?php
 
 use App\Enums\ProductType;
+use App\Models\Branch;
+use App\Models\BranchProduct;
+use App\Models\BranchProductPrice;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductAttribute;
 use Database\Seeders\CatalogDemoSeeder;
+use Database\Seeders\DemoDataSeeder;
 
 /*
  * CatalogDemoSeeder (P1-E3-T5).
@@ -87,6 +91,31 @@ it('can run twice without duplicating attributes or variants', function () {
         ->and(ProductAttribute::query()->where('name', 'Warna')->firstOrFail()->values()->count())->toBe(3)
         ->and(Product::query()->where('slug', 'kaos-polos-katun-combed')->firstOrFail()->variants()->count())
         ->toBe($variantCount);
+});
+
+it('gives one non-default branch a deviation in availability and price', function () {
+    // The seeder needs branches, which DemoDataSeeder creates.
+    $this->seed(DemoDataSeeder::class);
+    $this->seed(CatalogDemoSeeder::class);
+
+    $branch = Branch::query()->where('is_default', false)->orderBy('id')->firstOrFail();
+
+    expect(BranchProduct::acrossBranches()->where('branch_id', $branch->id)->unavailable()->count())->toBe(2)
+        ->and(BranchProductPrice::acrossBranches()->where('branch_id', $branch->id)->count())->toBe(1);
+
+    // The default branch is deliberately left on the catalogue's terms, so the
+    // screens show that availability and price are per branch.
+    $default = Branch::query()->where('is_default', true)->firstOrFail();
+
+    expect(BranchProduct::acrossBranches()->where('branch_id', $default->id)->count())->toBe(0)
+        ->and(BranchProductPrice::acrossBranches()->where('branch_id', $default->id)->count())->toBe(0);
+});
+
+it('seeds no branch deviation when there are no branches yet', function () {
+    $this->seed(CatalogDemoSeeder::class);
+
+    expect(BranchProduct::acrossBranches()->count())->toBe(0)
+        ->and(BranchProductPrice::acrossBranches()->count())->toBe(0);
 });
 
 it('publishes every seeded product so the storefront has something to show', function () {

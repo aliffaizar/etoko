@@ -63,6 +63,7 @@ use Illuminate\Support\Carbon;
  * @property-read Category $category
  * @property-read Collection<int, ProductVariant> $variants
  * @property-read Collection<int, ProductImage> $images
+ * @property-read Collection<int, BranchProduct> $branchSettings
  */
 #[ObservedBy(ProductObserver::class)]
 #[Fillable([
@@ -140,6 +141,20 @@ class Product extends Model
     public function images(): HasMany
     {
         return $this->hasMany(ProductImage::class);
+    }
+
+    /**
+     * What each branch has decided about this product (P1-E3-T9).
+     *
+     * A branch with no row here follows the default and sells the product, so
+     * read the answer through `BranchProduct::availabilityFor()` rather than
+     * from the presence of a row.
+     *
+     * @return HasMany<BranchProduct, $this>
+     */
+    public function branchSettings(): HasMany
+    {
+        return $this->hasMany(BranchProduct::class);
     }
 
     /**

@@ -2,21 +2,27 @@
 
 namespace Database\Seeders;
 
+use App\Actions\Branch\SetBranchProductAvailability;
+use App\Actions\Branch\SetBranchProductPrice;
 use App\Actions\Category\CreateCategory;
 use App\Actions\Product\CreateProduct;
 use App\Actions\Product\GenerateProductVariants;
 use App\Enums\ProductAttributeType;
 use App\Enums\ProductType;
+use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductAttribute;
+use App\Models\ProductVariant;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
 /**
  * A small catalogue for local development: a three-level category tree, a
- * handful of products filed under it, and a grid of variants on the two
- * products that have options.
+ * handful of products filed under it, a grid of variants on the two products
+ * that have options, and one branch that deviates from both — so the
+ * availability and branch-price screens have something to show.
  *
  * Built through the same Actions the panel uses, so what the seeder produces
  * can never drift from what the screens produce — every product gets its
@@ -93,19 +99,45 @@ class CatalogDemoSeeder extends Seeder
     ];
 
     /**
-     * Product slug => the attributes its variants are generated from.
+     * Product name => the attributes its variants are generated from.
+     *
+     * Keyed by name rather than slug, because the slug is derived and the
+     * derivation drops punctuation in ways that are easy to guess wrong
+     * ("1,8 Liter" becomes "18-liter").
      *
      * @var array<string, array<int, string>>
      */
     private const VARIANT_GRIDS = [
-        'kaos-polos-katun-combed' => ['Warna', 'Ukuran'],
-        'sepatu-lari-ringan' => ['Ukuran'],
+        'Kaos Polos Katun Combed' => ['Warna', 'Ukuran'],
+        'Sepatu Lari Ringan' => ['Ukuran'],
+    ];
+
+    /**
+     * Products the second branch does not sell (P1-E3-T9).
+     *
+     * @var array<int, string>
+     */
+    private const BRANCH_UNAVAILABLE = [
+        'Rice Cooker Digital 1,8 Liter',
+        'Blender Kaca 1,5 Liter',
+    ];
+
+    /**
+     * Product name => the second branch's own price and strikethrough price
+     * for its default variant (P1-E3-T10).
+     *
+     * @var array<string, array{0: int, 1: int|null}>
+     */
+    private const BRANCH_PRICES = [
+        'Headphone Nirkabel ANC' => [849_000, 899_000],
     ];
 
     public function run(
         CreateCategory $createCategory,
         CreateProduct $createProduct,
         GenerateProductVariants $generateVariants,
+        SetBranchProductAvailability $setAvailability,
+        SetBranchProductPrice $setBranchPrice,
     ): void {
         $this->seedTree($createCategory);
 
@@ -133,6 +165,51 @@ class CatalogDemoSeeder extends Seeder
 
         $this->seedAttributes();
         $this->seedVariantGrids($generateVariants);
+        $this->seedBranchDeviations($setAvailability, $setBranchPrice);
+    }
+
+    /**
+     * One branch that does not sell everything and does not charge the
+     * catalogue price (P1-E3-T9, P1-E3-T10).
+     *
+     * The *second* branch, deliberately: the first is the default one, and a
+     * deviation on it would hide the fact that availability and price are
+     * per-branch. Both go through the same Actions the panel uses, and both
+     * are idempotent, so re-running changes nothing.
+     */
+    private function seedBranchDeviations(
+        SetBranchProductAvailability $setAvailability,
+        SetBranchProductPrice $setBranchPrice,
+    ): void {
+        $branch = Branch::query()->where('is_default', false)->orderBy('id')->first();
+
+        if (! $branch instanceof Branch) {
+            return;
+        }
+
+        $unavailable = Product::query()
+            ->whereIn('name', self::BRANCH_UNAVAILABLE)
+            ->pluck('id')
+            ->all();
+
+        $setAvailability->handle($branch, $unavailable, false, 'Belum ada permintaan di cabang ini');
+
+        foreach (self::BRANCH_PRICES as $productName => [$price, $compareAtPrice]) {
+            $variant = ProductVariant::query()
+                ->whereHas('product', fn (Builder $product) => $product->where('name', $productName))
+                ->where('is_default', true)
+                ->first();
+
+            if (! $variant instanceof ProductVariant) {
+                continue;
+            }
+
+            $setBranchPrice->handle($branch, $variant, [
+                'price' => $price,
+                'compare_at_price' => $compareAtPrice,
+                'is_active' => true,
+            ]);
+        }
     }
 
     /**
@@ -167,8 +244,8 @@ class CatalogDemoSeeder extends Seeder
      */
     private function seedVariantGrids(GenerateProductVariants $generateVariants): void
     {
-        foreach (self::VARIANT_GRIDS as $productSlug => $attributeNames) {
-            $product = Product::query()->where('slug', $productSlug)->first();
+        foreach (self::VARIANT_GRIDS as $productName => $attributeNames) {
+            $product = Product::query()->where('name', $productName)->first();
 
             if (! $product instanceof Product) {
                 continue;

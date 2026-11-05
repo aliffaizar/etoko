@@ -1,5 +1,5 @@
 import { Head, Link, router, setLayoutProps } from '@inertiajs/react';
-import { Star, Trash2 } from 'lucide-react';
+import { Package, Star, Tags, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import BranchController from '@/actions/App/Http/Controllers/Admin/BranchController';
 import { BranchForm } from '@/components/admin/branch-form';
@@ -26,6 +26,8 @@ import {
 } from '@/components/ui/dialog';
 import { formatDateTime } from '@/lib/format';
 import { edit, index as branchesIndex } from '@/routes/admin/branches';
+import branchPrices from '@/routes/admin/branches/prices';
+import branchProducts from '@/routes/admin/branches/products';
 import type {
     AssignableStaffOption,
     BranchAbilities,
@@ -88,6 +90,20 @@ export default function BranchesEdit({
                         description={`${branch.code} · Dibuat ${formatDateTime(branch.created_at)}`}
                     />
                     <div className="flex flex-wrap items-center gap-2">
+                        {/* The branch's slice of the central catalogue: what it
+                            sells (P1-E3-T9) and at what price (P1-E3-T10). */}
+                        <Button variant="outline" asChild>
+                            <Link href={branchProducts.index(branch.id)}>
+                                <Package aria-hidden />
+                                Ketersediaan Produk
+                            </Link>
+                        </Button>
+                        <Button variant="outline" asChild>
+                            <Link href={branchPrices.index(branch.id)}>
+                                <Tags aria-hidden />
+                                Harga Khusus
+                            </Link>
+                        </Button>
                         {branch.is_default && (
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                 <Star

@@ -58,6 +58,24 @@ export type DataTableColumn<TRow> = {
     srOnlyHeader?: boolean;
 };
 
+/**
+ * Row selection, for a listing that offers an action over many rows at once.
+ *
+ * The page owns the selected keys: it is what sends them, and what has to
+ * clear them once the server has answered. `DataTable` only draws the
+ * checkboxes and reports the clicks.
+ */
+export type DataTableSelection<TRow> = {
+    /** Keys of the currently selected rows, as `rowKey` returns them. */
+    selectedKeys: (string | number)[];
+    /** Called with the full new selection whenever a checkbox is clicked. */
+    onChange: (keys: (string | number)[]) => void;
+    /** Rows this listing may not select, e.g. ones the actor cannot change. */
+    isSelectable?: (row: TRow) => boolean;
+    /** Accessible name of a row's checkbox. */
+    rowLabel?: (row: TRow) => string;
+};
+
 export type DataTableEmptyState = {
     title: string;
     description?: string;

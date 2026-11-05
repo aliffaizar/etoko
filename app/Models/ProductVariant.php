@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -49,6 +50,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property-read Product $product
  * @property-read Collection<int, ProductAttributeValue> $attributeValues
+ * @property-read Collection<int, BranchProductPrice> $branchPrices
  */
 #[ObservedBy(ProductVariantObserver::class)]
 #[Fillable([
@@ -99,6 +101,19 @@ class ProductVariant extends Model
             ProductAttributeValue::class,
             'product_variant_attribute_values',
         )->withTimestamps();
+    }
+
+    /**
+     * The branch-specific prices of this variant (P1-E3-T10).
+     *
+     * A branch with no row here charges what the catalogue charges;
+     * `EffectivePriceResolver` is what weighs the two (BR-8).
+     *
+     * @return HasMany<BranchProductPrice, $this>
+     */
+    public function branchPrices(): HasMany
+    {
+        return $this->hasMany(BranchProductPrice::class);
     }
 
     /**

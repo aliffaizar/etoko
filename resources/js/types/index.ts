@@ -1,5 +1,6 @@
 export type * from './auth';
 export type * from './branch';
+export type * from './branch-catalog';
 export type * from './category';
 export type * from './data-table';
 export type * from './navigation';

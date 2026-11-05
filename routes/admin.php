@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\BranchOperatingHourController;
+use App\Http\Controllers\Admin\BranchProductController;
+use App\Http\Controllers\Admin\BranchProductPriceController;
 use App\Http\Controllers\Admin\BranchStaffController;
 use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
@@ -114,6 +116,16 @@ Route::middleware(['auth', 'verified', 'branch'])
                 ->middleware('can:users.update')
                 ->name('staff.store');
 
+            Route::prefix('{branch}/products')->name('products.')->group(function () {
+                Route::get('/', [BranchProductController::class, 'index'])
+                    ->middleware('can:products.view')
+                    ->name('index');
+
+                Route::put('/', [BranchProductController::class, 'update'])
+                    ->middleware('can:products.update')
+                    ->name('update');
+            });
+
             Route::prefix('{branch}/warehouses')->name('warehouses.')->group(function () {
                 Route::post('/', [BranchWarehouseController::class, 'store'])
                     ->middleware('can:warehouses.manage')
@@ -131,6 +143,27 @@ Route::middleware(['auth', 'verified', 'branch'])
                     ->middleware('can:warehouses.manage')
                     ->name('destroy');
             });
+        });
+
+        /*
+         * Branch prices sit outside the scoped-bindings group above: a variant
+         * belongs to a product, not to a branch, so scoping `{variant}` to
+         * `{branch}` would look for a `Branch::variants()` relation that does
+         * not — and should not — exist. `BranchPolicy::viewPrices` and
+         * `managePrices` are what keep the branch within the actor's reach.
+         */
+        Route::prefix('branches/{branch}/prices')->name('branches.prices.')->group(function () {
+            Route::get('/', [BranchProductPriceController::class, 'index'])
+                ->middleware('can:branch_prices.view')
+                ->name('index');
+
+            Route::put('{variant}', [BranchProductPriceController::class, 'store'])
+                ->middleware('can:branch_prices.manage')
+                ->name('store');
+
+            Route::delete('{variant}', [BranchProductPriceController::class, 'destroy'])
+                ->middleware('can:branch_prices.manage')
+                ->name('destroy');
         });
 
         Route::prefix('products')->name('products.')->scopeBindings()->group(function () {
