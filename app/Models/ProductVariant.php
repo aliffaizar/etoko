@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * One sellable unit of a product (P1-E3-T4).
@@ -168,6 +169,21 @@ class ProductVariant extends Model
     public function effectiveWeightGram(): int
     {
         return $this->weight_gram ?? $this->product->weight_gram;
+    }
+
+    /**
+     * The public URL of this variant's own thumbnail, when it has one.
+     *
+     * The column holds a path on the `public` disk, so no URL is ever stored —
+     * the same arrangement as `ProductImage::path` and `Category::image_path`.
+     * Null is the normal case: most variants are shown through the product's
+     * gallery, where a photo can be tagged with the variant it depicts.
+     */
+    public function imageUrl(): ?string
+    {
+        return $this->image_path === null
+            ? null
+            : Storage::disk('public')->url($this->image_path);
     }
 
     /**

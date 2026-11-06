@@ -78,6 +78,25 @@ class BranchFactory extends Factory
         return $this->state(['is_default' => true]);
     }
 
+    /**
+     * A branch at a known point, for the storefront's nearest-branch search
+     * (P1-E5-T2) — the default state randomises the coordinates, which cannot
+     * be ranked against an expectation.
+     */
+    public function at(float $latitude, float $longitude): static
+    {
+        return $this->state(['latitude' => $latitude, 'longitude' => $longitude]);
+    }
+
+    /**
+     * A branch whose position has never been recorded, which the
+     * nearest-branch search has to skip rather than treat as (0, 0).
+     */
+    public function withoutCoordinates(): static
+    {
+        return $this->state(['latitude' => null, 'longitude' => null]);
+    }
+
     public function deliveryOnly(): static
     {
         return $this->state(['supports_delivery' => true, 'supports_pickup' => false]);

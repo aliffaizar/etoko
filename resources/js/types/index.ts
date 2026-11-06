@@ -9,6 +9,7 @@ export type * from './product';
 export type * from './product-attribute';
 export type * from './product-image';
 export type * from './product-variant';
+export type * from './shop';
 export type * from './stock';
 export type * from './ui';
 export type * from './user';

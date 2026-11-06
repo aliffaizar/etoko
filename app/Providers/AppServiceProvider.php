@@ -5,12 +5,16 @@ namespace App\Providers;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Services\Branch\BranchContext;
+use App\Services\Branch\StorefrontBranch;
 use App\Support\ErrorPage;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 use Inertia\ExceptionResponse;
@@ -24,6 +28,12 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(BranchContext::class);
+
+        // Scoped, not a singleton: the shared storefront props, the catalogue
+        // query and the price resolver all ask which branch the shopper is in
+        // and must get the same answer — but that answer belongs to one
+        // request, and a long-lived worker must not carry it into the next.
+        $this->app->scoped(StorefrontBranch::class);
     }
 
     /**
@@ -34,6 +44,30 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->configureAuthorization();
         $this->configureErrorPages();
+        $this->configureRateLimiting();
+    }
+
+    /**
+     * Rate limits for the public endpoints (docs/02-architecture.md §6).
+     *
+     * Catalogue search is the expensive public read: a `LIKE %term%` over the
+     * product table, repeated as fast as a script can type. Browsing is not —
+     * so the limiter exempts a request that carries no search term, and paging
+     * through a category or sorting a grid is never counted against anybody.
+     *
+     * Keyed by IP, because the storefront has no account behind it.
+     */
+    protected function configureRateLimiting(): void
+    {
+        RateLimiter::for('catalog-search', function (Request $request): Limit {
+            $search = $request->query('search');
+
+            if (! is_string($search) || trim($search) === '') {
+                return Limit::none();
+            }
+
+            return Limit::perMinute(60)->by((string) $request->ip());
+        });
     }
 
     /**

@@ -1,5 +1,6 @@
 import type { Auth } from '@/types/auth';
 import type { BreadcrumbItem } from '@/types/navigation';
+import type { ShopContext } from '@/types/shop';
 import type { FlashData } from '@/types/ui';
 
 declare module 'react' {
@@ -19,6 +20,12 @@ declare module '@inertiajs/core' {
              * sends, and the import report of P1-E3-T11.
              */
             flash?: FlashData;
+            /**
+             * The chosen branch and the category menu, shared on storefront
+             * routes only by `ShareStorefrontContext` — hence optional: a
+             * panel page has no shop context at all.
+             */
+            shop?: ShopContext;
             [key: string]: unknown;
         };
         /**

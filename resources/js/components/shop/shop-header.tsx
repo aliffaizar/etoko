@@ -1,0 +1,315 @@
+import { Link, router, usePage } from '@inertiajs/react';
+import { ChevronDown, LayoutGrid, Menu, Search, Store } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import AppLogo from '@/components/app-logo';
+import { BranchPicker } from '@/components/shop/branch-picker';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetTrigger,
+} from '@/components/ui/sheet';
+import { UserMenuContent } from '@/components/user-menu-content';
+import { useAuthorization } from '@/hooks/use-authorization';
+import { useInitials } from '@/hooks/use-initials';
+import { home, login, register } from '@/routes';
+import { dashboard as adminDashboard } from '@/routes/admin';
+import { dashboard as branchDashboard } from '@/routes/branch';
+import catalog from '@/routes/shop/catalog';
+import type { ShopContext } from '@/types';
+
+/**
+ * The storefront's header.
+ *
+ * Three things have to be reachable from every page: the branch the shopper is
+ * buying from — because it decides every price and stock figure on screen
+ * (BR-8) — the search box, and the category menu. The cart and wishlist join
+ * them in `P1-E6`, which is why the right-hand side is a row rather than a
+ * single button.
+ *
+ * The staff shortcut is deliberate: an admin who lands on the shop should be
+ * one click from their panel instead of hunting for a URL.
+ */
+export function ShopHeader() {
+    const shop = usePage().props.shop as ShopContext | undefined;
+    const categories = shop?.categories ?? [];
+
+    return (
+        <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4">
+                <MobileMenu categories={categories} />
+
+                <Link
+                    href={home()}
+                    className="flex shrink-0 items-center gap-2"
+                    aria-label="Beranda"
+                >
+                    <AppLogo />
+                </Link>
+
+                <CatalogSearch className="hidden flex-1 md:block" />
+
+                <div className="ml-auto flex items-center gap-1 md:ml-0">
+                    <BranchPicker className="hidden sm:flex" />
+                    <AccountMenu />
+                </div>
+            </div>
+
+            <CategoryBar categories={categories} />
+
+            <div className="border-t px-4 py-2 md:hidden">
+                <CatalogSearch />
+                <BranchPicker className="mt-1 sm:hidden" />
+            </div>
+        </header>
+    );
+}
+
+/**
+ * The search box, which navigates to the catalogue rather than filtering in
+ * place.
+ *
+ * Submitted on Enter rather than on every keystroke, and submitted as a plain
+ * navigation, so the result is a bookmarkable, shareable URL — the same page a
+ * shopper reaches by browsing (P1-E5-T5). The debounced, type-as-you-go search
+ * lives on the catalogue screen itself, where the grid is already on screen to
+ * react to it; doing it here would navigate away mid-word from whatever page
+ * the shopper is on.
+ */
+function CatalogSearch({ className }: { className?: string }) {
+    const page = usePage();
+    const inputId = useId();
+    const currentSearch = new URL(
+        page.url,
+        'http://localhost',
+    ).searchParams.get('search');
+    const [draft, setDraft] = useState(currentSearch ?? '');
+
+    // Follow the URL when it changes elsewhere, e.g. the back button or a
+    // filter reset on the catalogue page.
+    useEffect(() => setDraft(currentSearch ?? ''), [currentSearch]);
+
+    return (
+        <form
+            className={className}
+            onSubmit={(event) => {
+                event.preventDefault();
+                router.get(
+                    catalog.index.url({ query: { search: draft || null } }),
+                );
+            }}
+        >
+            <Label htmlFor={inputId} className="sr-only">
+                Cari produk
+            </Label>
+            <div className="relative">
+                <Search
+                    aria-hidden
+                    className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                    id={inputId}
+                    type="search"
+                    name="search"
+                    value={draft}
+                    placeholder="Cari produk…"
+                    onChange={(event) => setDraft(event.target.value)}
+                    className="pl-8"
+                />
+            </div>
+        </form>
+    );
+}
+
+function CategoryBar({
+    categories,
+}: {
+    categories: ShopContext['categories'];
+}) {
+    if (categories.length === 0) {
+        return null;
+    }
+
+    return (
+        <nav aria-label="Kategori produk" className="hidden border-t md:block">
+            <ul className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4">
+                <li>
+                    <Button variant="ghost" size="sm" asChild>
+                        <Link href={catalog.index()} prefetch>
+                            <LayoutGrid aria-hidden />
+                            Semua Produk
+                        </Link>
+                    </Button>
+                </li>
+
+                {categories.map((category) => (
+                    <li key={category.slug}>
+                        {category.children.length === 0 ? (
+                            <Button variant="ghost" size="sm" asChild>
+                                <Link
+                                    href={catalog.category(category.slug)}
+                                    prefetch
+                                >
+                                    {category.name}
+                                </Link>
+                            </Button>
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm">
+                                        {category.name}
+                                        <ChevronDown aria-hidden />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                    <Link
+                                        href={catalog.category(category.slug)}
+                                        className="block rounded-sm px-2 py-1.5 text-sm font-medium hover:bg-accent"
+                                    >
+                                        Semua {category.name}
+                                    </Link>
+                                    {category.children.map((child) => (
+                                        <Link
+                                            key={child.slug}
+                                            href={catalog.category(child.slug)}
+                                            className="block rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                                        >
+                                            {child.name}
+                                        </Link>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </nav>
+    );
+}
+
+function MobileMenu({ categories }: { categories: ShopContext['categories'] }) {
+    return (
+        <Sheet>
+            <SheetTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="md:hidden"
+                    aria-label="Buka menu kategori"
+                >
+                    <Menu aria-hidden />
+                </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 overflow-y-auto">
+                <SheetHeader>
+                    <SheetTitle>Kategori</SheetTitle>
+                </SheetHeader>
+
+                <nav className="flex flex-col gap-1 p-4">
+                    <Link
+                        href={catalog.index()}
+                        className="rounded-md px-2 py-2 text-sm font-medium hover:bg-accent"
+                    >
+                        Semua Produk
+                    </Link>
+
+                    {categories.map((category) => (
+                        <div key={category.slug} className="flex flex-col">
+                            <Link
+                                href={catalog.category(category.slug)}
+                                className="rounded-md px-2 py-2 text-sm font-medium hover:bg-accent"
+                            >
+                                {category.name}
+                            </Link>
+                            {category.children.map((child) => (
+                                <Link
+                                    key={child.slug}
+                                    href={catalog.category(child.slug)}
+                                    className="rounded-md px-2 py-1.5 pl-5 text-sm text-muted-foreground hover:bg-accent"
+                                >
+                                    {child.name}
+                                </Link>
+                            ))}
+                        </div>
+                    ))}
+                </nav>
+            </SheetContent>
+        </Sheet>
+    );
+}
+
+function AccountMenu() {
+    const { auth } = useAuthorization();
+    const getInitials = useInitials();
+
+    if (!auth?.user) {
+        return (
+            <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" asChild>
+                    <Link href={login()}>Masuk</Link>
+                </Button>
+                <Button size="sm" asChild>
+                    <Link href={register()}>Daftar</Link>
+                </Button>
+            </div>
+        );
+    }
+
+    return (
+        <>
+            {auth.isStaff && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    asChild
+                    className="hidden sm:flex"
+                >
+                    <Link
+                        href={
+                            auth.isCentral
+                                ? adminDashboard()
+                                : branchDashboard()
+                        }
+                    >
+                        <Store aria-hidden />
+                        Panel
+                    </Link>
+                </Button>
+            )}
+
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="rounded-full"
+                        aria-label="Menu akun"
+                    >
+                        <Avatar className="size-8">
+                            <AvatarImage
+                                src={auth.user.avatar}
+                                alt={auth.user.name}
+                            />
+                            <AvatarFallback>
+                                {getInitials(auth.user.name)}
+                            </AvatarFallback>
+                        </Avatar>
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                    <UserMenuContent user={auth.user} />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </>
+    );
+}

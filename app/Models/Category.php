@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * A node of the product category tree (P1-E3-T1).
@@ -94,6 +95,20 @@ class Category extends Model
     }
 
     /**
+     * The public URL of the category's picture, when it has one.
+     *
+     * The column holds a path on the `public` disk, the way
+     * `ProductImage::path` does, so the URL is never stored — a disk or domain
+     * change must not have to rewrite rows.
+     */
+    public function imageUrl(): ?string
+    {
+        return $this->image_path === null
+            ? null
+            : Storage::disk('public')->url($this->image_path);
+    }
+
+    /**
      * This category's own level, 1 for a root.
      *
      * Walks up by id rather than through the `parent` relation, so it is an
@@ -135,6 +150,40 @@ class Category extends Model
         }
 
         return $height;
+    }
+
+    /**
+     * This category's ancestors, nearest root first.
+     *
+     * Walked by id rather than through the `parent` relation, so it stays an
+     * explicit, bounded set of queries instead of a lazy load —
+     * `Model::preventLazyLoading()` is on outside production — and it reads
+     * the same `MAX_DEPTH` ceiling `depth()` relies on as its loop guard.
+     *
+     * The storefront's breadcrumbs are the caller: a product page and a
+     * category page both need the trail above them (P1-E5-T3, T6).
+     *
+     * @return array<int, static>
+     */
+    public function ancestors(): array
+    {
+        $trail = [];
+        $parentId = $this->parent_id;
+        $levels = 0;
+
+        while ($parentId !== null && $levels < self::MAX_DEPTH) {
+            $parent = static::query()->find($parentId, ['id', 'parent_id', 'name', 'slug']);
+
+            if (! $parent instanceof static) {
+                break;
+            }
+
+            $trail[] = $parent;
+            $parentId = $parent->parent_id;
+            $levels++;
+        }
+
+        return array_reverse($trail);
     }
 
     /**

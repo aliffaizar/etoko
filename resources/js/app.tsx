@@ -8,6 +8,7 @@ import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import BranchLayout from '@/layouts/branch-layout';
 import SettingsLayout from '@/layouts/settings/layout';
+import ShopLayout from '@/layouts/shop-layout';
 import type { Auth } from '@/types/auth';
 import type { AppLayoutProps } from '@/types/ui';
 
@@ -36,9 +37,10 @@ void createInertiaApp({
         switch (true) {
             // The error page stands on its own: it is reached on routes whose
             // layout the user may not be allowed to see at all.
-            case name === 'welcome':
             case name === 'error':
                 return null;
+            case name.startsWith('shop/'):
+                return ShopLayout;
             case name.startsWith('auth/'):
                 return AuthLayout;
             case name.startsWith('admin/'):
