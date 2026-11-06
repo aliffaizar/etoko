@@ -9,6 +9,7 @@ import {
     Palette,
     ShieldCheck,
     Store,
+    UserCheck,
     Users,
 } from 'lucide-react';
 import { AppContent } from '@/components/app-content';
@@ -20,6 +21,7 @@ import { index as branchesIndex } from '@/routes/admin/branches';
 import { index as categoriesIndex } from '@/routes/admin/categories';
 import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
+import { index as customersIndex } from '@/routes/admin/customers';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import stockEntries from '@/routes/branch/stock-entries';
@@ -106,6 +108,17 @@ const navGroups: PanelNavGroup[] = [
                 href: stockOpnames.index(),
                 icon: ClipboardList,
                 permission: 'stock_opnames.view',
+            },
+        ],
+    },
+    {
+        label: 'Pelanggan',
+        items: [
+            {
+                title: 'Daftar Pelanggan',
+                href: customersIndex(),
+                icon: UserCheck,
+                permission: 'customers.view',
             },
         ],
     },

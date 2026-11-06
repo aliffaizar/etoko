@@ -1,5 +1,6 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
+    Heart,
     Info,
     MapPin,
     MessageSquare,
@@ -22,7 +23,9 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatNumber, formatWeight } from '@/lib/format';
+import cart from '@/routes/shop/cart';
 import catalog from '@/routes/shop/catalog';
+import account from '@/routes/shop/account';
 import type {
     ShopContext,
     ShopProductAttribute,
@@ -39,6 +42,7 @@ type Props = {
     attributes: ShopProductAttribute[];
     breadcrumbs: Array<{ name: string; slug: string }>;
     branch_availability: ShopProductAvailability;
+    is_wishlisted: boolean;
 };
 
 type DetailTab = 'description' | 'specification' | 'reviews';
@@ -66,14 +70,19 @@ export default function ShopProduct({
     attributes,
     breadcrumbs,
     branch_availability: availability,
+    is_wishlisted: initialWishlisted,
 }: Props) {
     const shop = usePage().props.shop as ShopContext | undefined;
     const branch = shop?.branch ?? null;
+    const auth = usePage().props.auth as { user?: { id: number } } | undefined;
+    const isAuthenticated = !!auth?.user;
 
     const [selection, setSelection] = useState<Record<number, number>>(() =>
         initialSelection(variants, attributes),
     );
     const [tab, setTab] = useState<DetailTab>('description');
+    const [wishlisted, setWishlisted] = useState(initialWishlisted);
+    const [addingToCart, setAddingToCart] = useState(false);
 
     const selected = findVariant(variants, attributes, selection);
 
@@ -150,8 +159,34 @@ export default function ShopProduct({
                         />
 
                         <BuyActions
+                            product={product}
                             selected={selected}
                             isSoldAtBranch={availability.is_sold_at_branch}
+                            isAuthenticated={isAuthenticated}
+                            wishlisted={wishlisted}
+                            addingToCart={addingToCart}
+                            onAddToCart={() => {
+                                if (!selected) return;
+                                setAddingToCart(true);
+                                router.post(
+                                    cart.store().url,
+                                    { product_variant_id: selected.id, quantity: 1 },
+                                    {
+                                        preserveScroll: true,
+                                        onFinish: () => setAddingToCart(false),
+                                    },
+                                );
+                            }}
+                            onToggleWishlist={() => {
+                                router.post(
+                                    account.wishlist.toggle(product.id).url,
+                                    {},
+                                    {
+                                        preserveScroll: true,
+                                        onSuccess: () => setWishlisted((w) => !w),
+                                    },
+                                );
+                            }}
                         />
 
                         {branch && <FulfillmentNote branch={branch} />}
@@ -331,51 +366,76 @@ function BranchStock({
 }
 
 /**
- * The buy buttons.
- *
- * Disabled with a reason until `P1-E6` builds the cart. Shown rather than
- * hidden because the page has to read as a product page, and because the
- * disabled state is where the stock rule becomes visible: an option with
- * nothing left could not be added even once the cart exists.
+ * The buy and wishlist buttons (P1-E6-T4, P1-E6-T6).
  */
 function BuyActions({
+    product,
     selected,
     isSoldAtBranch,
+    isAuthenticated,
+    wishlisted,
+    addingToCart,
+    onAddToCart,
+    onToggleWishlist,
 }: {
+    product: ShopProductDetail;
     selected: ShopProductVariant | null;
     isSoldAtBranch: boolean;
+    isAuthenticated: boolean;
+    wishlisted: boolean;
+    addingToCart: boolean;
+    onAddToCart: () => void;
+    onToggleWishlist: () => void;
 }) {
+    const disabled = !isSoldAtBranch || selected === null || !selected.is_in_stock;
+
     const reason = !isSoldAtBranch
         ? 'Cabang terpilih tidak menjual produk ini. Pilih cabang lain di header.'
         : selected === null
           ? 'Pilih varian terlebih dahulu.'
           : !selected.is_in_stock
             ? 'Varian ini habis di cabang terpilih.'
-            : 'Keranjang belanja hadir di tahap berikutnya.';
+            : null;
 
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2">
                 <Button
                     size="lg"
-                    disabled
+                    disabled={disabled || addingToCart}
                     className="flex-1"
-                    aria-describedby="buy-reason"
+                    onClick={onAddToCart}
+                    aria-describedby={reason ? 'buy-reason' : undefined}
                 >
                     <ShoppingCart aria-hidden />
-                    Tambah ke Keranjang
+                    {addingToCart ? 'Menambahkan…' : 'Tambah ke Keranjang'}
                 </Button>
-                <Button size="lg" variant="outline" disabled>
-                    Beli Sekarang
-                </Button>
+
+                {isAuthenticated && (
+                    <Button
+                        size="lg"
+                        variant="outline"
+                        onClick={onToggleWishlist}
+                        aria-label={wishlisted ? 'Hapus dari wishlist' : 'Tambah ke wishlist'}
+                        className={wishlisted ? 'text-destructive' : ''}
+                    >
+                        <Heart
+                            className="size-5"
+                            aria-hidden
+                            fill={wishlisted ? 'currentColor' : 'none'}
+                        />
+                    </Button>
+                )}
             </div>
-            <p
-                id="buy-reason"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-            >
-                <Info className="size-3.5 shrink-0" aria-hidden />
-                {reason}
-            </p>
+            {reason && (
+                <p
+                    id="buy-reason"
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                    <Info className="size-3.5 shrink-0" aria-hidden />
+                    {reason}
+                </p>
+            )}
         </div>
     );
 }

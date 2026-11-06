@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\BranchProductPriceController;
 use App\Http\Controllers\Admin\BranchStaffController;
 use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
+use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ProductAttributeController;
 use App\Http\Controllers\Admin\ProductAttributeValueController;
@@ -327,6 +328,16 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::delete('{category}', [CategoryController::class, 'destroy'])
                 ->middleware('can:categories.delete')
                 ->name('destroy');
+        });
+
+        Route::prefix('customers')->name('customers.')->group(function () {
+            Route::get('/', [CustomerController::class, 'index'])
+                ->middleware('can:customers.view')
+                ->name('index');
+
+            Route::get('{customer}', [CustomerController::class, 'show'])
+                ->middleware('can:customers.view')
+                ->name('show');
         });
 
         Route::prefix('roles')->name('roles.')->group(function () {

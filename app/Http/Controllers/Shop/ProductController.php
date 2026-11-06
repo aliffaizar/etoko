@@ -11,6 +11,7 @@ use App\Models\ProductAttribute;
 use App\Models\ProductAttributeValue;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\User;
 use App\Services\Branch\StorefrontBranch;
 use App\Services\Pricing\EffectivePriceResolver;
 use App\Services\Pricing\ResolvedPrice;
@@ -50,6 +51,10 @@ class ProductController extends Controller
         // No branch: the storefront charges the catalogue price (ADR-031).
         $resolved = $prices->forMany($product->variants, null);
 
+        $user = auth()->user();
+        $isWishlisted = $user instanceof User
+            && $user->wishlists()->where('product_id', $product->getKey())->exists();
+
         return Inertia::render('shop/product', [
             'product' => $this->productProps($product, $resolved),
             'variants' => $this->variantProps($product, $resolved),
@@ -57,6 +62,7 @@ class ProductController extends Controller
             'attributes' => $this->attributeProps($product),
             'breadcrumbs' => $this->categoryTrail($product),
             'branch_availability' => $this->availabilityProps($product),
+            'is_wishlisted' => $isWishlisted,
         ]);
     }
 

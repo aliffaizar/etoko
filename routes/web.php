@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Shop\AddressController;
 use App\Http\Controllers\Shop\BranchController;
+use App\Http\Controllers\Shop\CartController;
 use App\Http\Controllers\Shop\CatalogController;
 use App\Http\Controllers\Shop\HomeController;
 use App\Http\Controllers\Shop\ProductController;
+use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
 use Illuminate\Support\Facades\Route;
 
@@ -68,6 +71,44 @@ Route::middleware(ShareStorefrontContext::class)->group(function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Customer Account (authenticated shoppers)
+|--------------------------------------------------------------------------
+|
+| Paths are in Indonesian so they read as natural URLs in a shop. Names
+| stay English for consistency with the rest of the application.
+|
+| Cart also accepts unauthenticated visitors (guests); the middleware is
+| applied per-route below rather than on the whole group.
+|
+*/
+
+Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function () {
+    // Cart — open to guests and authenticated users
+    Route::prefix('keranjang')->name('cart.')->group(function () {
+        Route::get('/', [CartController::class, 'index'])->name('index');
+        Route::post('/', [CartController::class, 'store'])->name('store');
+        Route::patch('{cartItem}', [CartController::class, 'update'])->name('update');
+        Route::delete('{cartItem}', [CartController::class, 'destroy'])->name('destroy');
+    });
+
+    // Customer account — requires authentication
+    Route::middleware(['auth', 'verified'])->prefix('akun')->name('account.')->group(function () {
+        Route::prefix('alamat')->name('addresses.')->group(function () {
+            Route::get('/', [AddressController::class, 'index'])->name('index');
+            Route::post('/', [AddressController::class, 'store'])->name('store');
+            Route::patch('{address}', [AddressController::class, 'update'])->name('update');
+            Route::delete('{address}', [AddressController::class, 'destroy'])->name('destroy');
+        });
+
+        Route::prefix('wishlist')->name('wishlist.')->group(function () {
+            Route::get('/', [WishlistController::class, 'index'])->name('index');
+            Route::post('{product}/toggle', [WishlistController::class, 'toggle'])->name('toggle');
+        });
+    });
 });
 
 require __DIR__.'/settings.php';
