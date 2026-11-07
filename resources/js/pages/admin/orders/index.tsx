@@ -175,9 +175,7 @@ export default function OrdersIndex({
             align: 'right',
             hideOnMobile: true,
             cell: (order) => (
-                <span className="text-sm tabular-nums">
-                    {order.item_count}
-                </span>
+                <span className="text-sm tabular-nums">{order.item_count}</span>
             ),
         },
         {

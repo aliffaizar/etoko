@@ -281,4 +281,36 @@ class ProductVariant extends Model
     {
         return $query->where('is_default', true);
     }
+
+    /**
+     * Variants a shopper is allowed to put in a basket (MED-02).
+     *
+     * The same three questions `PlaceOrder` asks at checkout, asked when the
+     * item goes in: the variant is active, its product is published, and its
+     * category is switched on — switching a category off switches its whole
+     * subtree off (ADR-019), so the product's own category is the only one to
+     * check. Soft-deleted variants and products are excluded by their own
+     * scopes.
+     *
+     * Only the branch's own availability is left out, because that depends on
+     * which branch the visitor has chosen; `AddCartItemRequest` asks that part.
+     *
+     * Before this existed, `exists:product_variants,id` was the whole check,
+     * so anyone who guessed an id could put an unreleased product in their
+     * basket and read its name, photo and **price** off the cart page. The sale
+     * was never possible — checkout refuses, and that is tested — but the price
+     * of something not yet launched is not public information.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    #[Scope]
+    protected function buyable(Builder $query): Builder
+    {
+        return $query
+            ->active()
+            ->whereHas('product', fn (Builder $product): Builder => $product
+                ->published()
+                ->whereHas('category', fn (Builder $category): Builder => $category->where('is_active', true)));
+    }
 }

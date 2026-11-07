@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\PaymentStatus;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Address;
 use App\Models\Order;
@@ -29,6 +28,17 @@ use Inertia\Response;
  * that customer has bought from *them*, which is what a branch can answer for.
  * Central sees the whole figure.
  *
+ * **Which customers exist is narrowed too** (HIGH-04). That used to be missing:
+ * the figures were scoped but the set of people was not, so a branch admin
+ * could list the company's whole customer base and open anybody's profile —
+ * addresses included. `User::customersVisibleTo()` holds the single definition
+ * of who a given actor may see, and both screens below ask it; docs/04-rbac.md
+ * §"Kasus khusus" is what it implements.
+ *
+ * A customer outside that reach answers **404, not 403**, following the pattern
+ * orders already set (ADR-027): a refusal that distinguishes "not yours" from
+ * "does not exist" tells the asker that the record is there.
+ *
  * Permission: `customers.view` (read-only listing and profile detail).
  */
 class CustomerController extends Controller
@@ -51,10 +61,12 @@ class CustomerController extends Controller
     {
         $this->authorize('customers.view');
 
+        /** @var User $actor */
+        $actor = $request->user();
         $filters = $this->validatedFilters($request);
 
         return Inertia::render('admin/customers/index', [
-            'customers' => $this->paginated($filters),
+            'customers' => $this->paginated($actor, $filters),
             'filters' => $filters,
             'options' => [
                 'statuses' => [
@@ -65,11 +77,14 @@ class CustomerController extends Controller
         ]);
     }
 
-    public function show(User $customer): Response
+    public function show(Request $request, User $customer): Response
     {
         $this->authorize('customers.view');
 
-        abort_unless($customer->hasRole(UserRole::Customer->value), 404);
+        /** @var User $actor */
+        $actor = $request->user();
+
+        abort_unless($this->isVisibleTo($actor, $customer), 404);
 
         $customer->load(['addresses' => fn ($q) => $q->orderByDesc('is_default')->orderBy('created_at')]);
 
@@ -124,16 +139,32 @@ class CustomerController extends Controller
     }
 
     /**
+     * Whether this customer is one the actor may open at all.
+     *
+     * Asked as a query rather than off the model, because the rule is about the
+     * orders the actor can see and that is the scope's answer to give — the
+     * same answer the listing is built from, so a profile can never be
+     * reachable by URL while being absent from the list that links to it.
+     */
+    private function isVisibleTo(User $actor, User $customer): bool
+    {
+        return User::query()
+            ->customersVisibleTo($actor)
+            ->whereKey($customer->getKey())
+            ->exists();
+    }
+
+    /**
      * @param  array{search: string, status: string, sort: string, direction: string}  $filters
      * @return LengthAwarePaginator<int, mixed>
      */
-    private function paginated(array $filters): LengthAwarePaginator
+    private function paginated(User $actor, array $filters): LengthAwarePaginator
     {
         $column = self::SORTS[$filters['sort']] ?? 'created_at';
         $direction = $filters['direction'] === 'asc' ? 'asc' : 'desc';
 
         return User::query()
-            ->role(UserRole::Customer->value)
+            ->customersVisibleTo($actor)
             ->withCount('orders')
             ->when($filters['search'] !== '', fn (Builder $q) => $q->where(
                 fn (Builder $match) => $match

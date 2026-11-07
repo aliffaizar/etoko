@@ -6,8 +6,8 @@ use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\ProductVariant;
-use App\Models\Stock;
 use App\Models\User;
+use App\Services\Inventory\StockAllocator;
 use App\Services\Pricing\EffectivePriceResolver;
 use App\Services\Pricing\ResolvedPrice;
 use Illuminate\Contracts\Session\Session;
@@ -39,6 +39,7 @@ final class CartService
     public function __construct(
         private readonly Session $session,
         private readonly EffectivePriceResolver $priceResolver,
+        private readonly StockAllocator $stockAllocator,
     ) {}
 
     /**
@@ -264,6 +265,18 @@ final class CartService
     /**
      * Available stock (on-hand minus reserved) for a variant at a branch.
      *
+     * Asked of `StockAllocator`, which is the one definition of "what this
+     * branch can sell" (ADR-033) — every warehouse the branch keeps, summed,
+     * read across branch scope because the branch is the customer's choice and
+     * not the actor's (ADR-028).
+     *
+     * This used to be a query of its own ending in `->first()`, which read a
+     * single `stocks` row (MED-01). In a branch with more than one warehouse —
+     * supported since `P1-E2-T6` — that gave three different answers to one
+     * question: the product card summed every warehouse and promised 7, the
+     * cart refused at 3, and checkout would happily have served all 7. It
+     * turned down sales the shop could make.
+     *
      * Returns null when the branch is unknown (unbounded add allowed; checkout
      * will verify).
      */
@@ -273,11 +286,6 @@ final class CartService
             return null;
         }
 
-        $stock = Stock::query()
-            ->where('branch_id', $branch->getKey())
-            ->where('product_variant_id', $variant->getKey())
-            ->first();
-
-        return $stock ? ($stock->quantity - $stock->reserved_quantity) : 0;
+        return $this->stockAllocator->availableAtBranch($branch, $variant);
     }
 }

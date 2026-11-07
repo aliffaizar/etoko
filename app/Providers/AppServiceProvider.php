@@ -10,6 +10,7 @@ use App\Support\ErrorPage;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,28 @@ class AppServiceProvider extends ServiceProvider
         $this->configureAuthorization();
         $this->configureErrorPages();
         $this->configureRateLimiting();
+        $this->configureDevProcesses();
+    }
+
+    /**
+     * Run the scheduler alongside `composer run dev` (MED-09).
+     *
+     * `ExpireStockReservations` is what gives back stock nobody finished
+     * paying for (P1-E7-T3, BR-6), and it needs **two** processes alive: the
+     * scheduler to dispatch it every minute, and a queue worker to run it.
+     * `php artisan dev` already starts `queue:listen`; it does not start a
+     * scheduler, so on a development machine or a client demo every abandoned
+     * checkout used to hold its units for ever, and a branch with goods on the
+     * shelf slowly stopped being able to sell them.
+     *
+     * Registering it here means the one command the documentation tells people
+     * to run is enough to see the behaviour the gate criteria describe. In
+     * production both processes are the deployment's job — see
+     * docs/07-progress.md §"Cara melanjutkan pekerjaan".
+     */
+    protected function configureDevProcesses(): void
+    {
+        DevCommands::artisan('schedule:work', 'scheduler');
     }
 
     /**

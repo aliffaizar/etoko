@@ -13,7 +13,7 @@ use App\Models\Stock;
 use App\Services\Branch\StorefrontBranch;
 use App\Services\Cart\CartService;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,8 +25,11 @@ use Inertia\Response;
  * (guest). On login `MergeGuestCart` moves the guest lines into the user's
  * cart (T5).
  *
- * Actions (store/update/destroy) return JSON so the React components can
- * update the badge count without a full redirect.
+ * Actions (store/update/destroy) answer with `back()` because every caller is
+ * an Inertia visit (`router.post`/`patch`/`delete`), and Inertia refuses a
+ * plain JSON body. The re-render is what refreshes the header badge, since
+ * `shop.cart_count` is a shared prop of `ShareStorefrontContext`; the outcome
+ * itself is reported with a flash toast.
  */
 class CartController extends Controller
 {
@@ -68,12 +71,15 @@ class CartController extends Controller
     /**
      * Add a variant to the cart.
      */
-    public function store(AddCartItemRequest $request): JsonResponse
+    public function store(AddCartItemRequest $request): RedirectResponse
     {
         $branch = $this->storefrontBranch->current();
         $cart = $this->cartService->resolve(auth()->user());
 
-        $variant = ProductVariant::withoutGlobalScopes()
+        // Global scopes left on: `AddCartItemRequest` has already settled that
+        // this variant is one a shopper may buy, and the soft-delete scope is
+        // part of that answer (MED-02).
+        $variant = ProductVariant::query()
             ->with('product:id,name,base_price')
             ->findOrFail((int) $request->validated('product_variant_id'));
 
@@ -85,13 +91,14 @@ class CartController extends Controller
         );
 
         if (! $success) {
-            return response()->json(['message' => 'Stok tidak mencukupi.'], 422);
+            Inertia::flash('toast', ['type' => 'error', 'message' => 'Stok tidak mencukupi.']);
+
+            return back();
         }
 
-        return response()->json([
-            'message' => 'Ditambahkan ke keranjang.',
-            'item_count' => $this->cartService->itemCount(auth()->user()),
-        ]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Ditambahkan ke keranjang.']);
+
+        return back();
     }
 
     /**
@@ -99,32 +106,30 @@ class CartController extends Controller
      *
      * Quantity of zero removes the item.
      */
-    public function update(UpdateCartItemRequest $request, int $cartItemId): JsonResponse
+    public function update(UpdateCartItemRequest $request, int $cartItemId): RedirectResponse
     {
         $cart = $this->cartService->resolve(auth()->user());
+        $quantity = (int) $request->validated('quantity');
 
-        $success = $this->cartService->updateItem(
-            $cart,
-            $cartItemId,
-            (int) $request->validated('quantity'),
-        );
+        $success = $this->cartService->updateItem($cart, $cartItemId, $quantity);
 
         if (! $success) {
-            return response()->json(['message' => 'Stok tidak mencukupi.'], 422);
+            Inertia::flash('toast', ['type' => 'error', 'message' => 'Stok tidak mencukupi.']);
+
+            return back();
         }
 
-        $cart->load('items');
+        if ($quantity === 0) {
+            Inertia::flash('toast', ['type' => 'success', 'message' => 'Item dihapus dari keranjang.']);
+        }
 
-        return response()->json([
-            'item_count' => $this->cartService->itemCount(auth()->user()),
-            'subtotal' => $cart->subtotal(),
-        ]);
+        return back();
     }
 
     /**
      * Remove a single item.
      */
-    public function destroy(int $cartItemId): JsonResponse
+    public function destroy(int $cartItemId): RedirectResponse
     {
         $cart = $this->cartService->resolve(auth()->user());
 
@@ -132,12 +137,9 @@ class CartController extends Controller
 
         $this->cartService->removeItem($cart, $cartItemId);
 
-        $cart->load('items');
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Item dihapus dari keranjang.']);
 
-        return response()->json([
-            'item_count' => $this->cartService->itemCount(auth()->user()),
-            'subtotal' => $cart->subtotal(),
-        ]);
+        return back();
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Http\Requests\Shop\StoreAddressRequest;
 use App\Http\Requests\Shop\UpdateAddressRequest;
 use App\Models\Address;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -35,7 +36,7 @@ class AddressController extends Controller
         $user = auth()->user();
         $data = $request->validated();
 
-        \DB::transaction(function () use ($user, $data) {
+        DB::transaction(function () use ($user, $data) {
             if ($data['is_default'] ?? false) {
                 $user->addresses()->update(['is_default' => false]);
             }
@@ -56,7 +57,7 @@ class AddressController extends Controller
 
         $data = $request->validated();
 
-        \DB::transaction(function () use ($address, $data) {
+        DB::transaction(function () use ($address, $data) {
             if ($data['is_default'] ?? false) {
                 auth()->user()->addresses()->where('id', '!=', $address->id)->update(['is_default' => false]);
             }
@@ -87,9 +88,16 @@ class AddressController extends Controller
         return redirect()->route('shop.account.addresses.index')->with('success', 'Alamat berhasil dihapus.');
     }
 
+    /**
+     * Refuse somebody else's address with a 404, not a 403 (LOW-02).
+     *
+     * The same choice orders make (ADR-027): answering "forbidden" would
+     * confirm that the id exists and belongs to another customer, which is one
+     * more thing than an outsider should be able to learn by guessing.
+     */
     private function authorizeAddress(Address $address): void
     {
-        abort_unless($address->user_id === auth()->id(), 403);
+        abort_unless($address->user_id === auth()->id(), 404);
     }
 
     /**

@@ -142,7 +142,9 @@ function AddressCard({
     return (
         <div className="rounded-lg border p-4">
             <div className="mb-2 flex items-center gap-2">
-                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">{address.label}</span>
+                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">
+                    {address.label}
+                </span>
                 {address.is_default && (
                     <span className="flex items-center gap-1 text-xs text-primary">
                         <Star className="size-3 fill-primary" />
@@ -170,11 +172,14 @@ function AddressCard({
             <p className="font-medium">{address.recipient_name}</p>
             <p className="text-sm text-muted-foreground">{address.phone}</p>
             <p className="mt-1 text-sm">
-                {address.address_line}, {address.district_name}, {address.city_name},{' '}
-                {address.province_name} {address.postal_code}
+                {address.address_line}, {address.district_name},{' '}
+                {address.city_name}, {address.province_name}{' '}
+                {address.postal_code}
             </p>
             {address.notes && (
-                <p className="mt-1 text-xs text-muted-foreground">Catatan: {address.notes}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                    Catatan: {address.notes}
+                </p>
             )}
         </div>
     );
@@ -191,22 +196,23 @@ function AddressDialog({
 }) {
     const isEdit = address !== null;
 
-    const { data, setData, post, patch, processing, errors, reset } = useForm<AddressFormData>(
-        address
-            ? {
-                label: address.label,
-                recipient_name: address.recipient_name,
-                phone: address.phone,
-                province_name: address.province_name,
-                city_name: address.city_name,
-                district_name: address.district_name,
-                postal_code: address.postal_code,
-                address_line: address.address_line,
-                is_default: address.is_default,
-                notes: address.notes ?? '',
-            }
-            : EMPTY_FORM,
-    );
+    const { data, setData, post, patch, processing, errors, reset } =
+        useForm<AddressFormData>(
+            address
+                ? {
+                      label: address.label,
+                      recipient_name: address.recipient_name,
+                      phone: address.phone,
+                      province_name: address.province_name,
+                      city_name: address.city_name,
+                      district_name: address.district_name,
+                      postal_code: address.postal_code,
+                      address_line: address.address_line,
+                      is_default: address.is_default,
+                      notes: address.notes ?? '',
+                  }
+                : EMPTY_FORM,
+        );
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -232,7 +238,9 @@ function AddressDialog({
         <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>{isEdit ? 'Edit Alamat' : 'Tambah Alamat Baru'}</DialogTitle>
+                    <DialogTitle>
+                        {isEdit ? 'Edit Alamat' : 'Tambah Alamat Baru'}
+                    </DialogTitle>
                 </DialogHeader>
 
                 <form onSubmit={submit} className="flex flex-col gap-4">
@@ -242,20 +250,34 @@ function AddressDialog({
                             <Input
                                 id="label"
                                 value={data.label}
-                                onChange={(e) => setData('label', e.target.value)}
+                                onChange={(e) =>
+                                    setData('label', e.target.value)
+                                }
                                 placeholder="Rumah, Kantor, …"
                             />
-                            {errors.label && <p className="mt-1 text-xs text-destructive">{errors.label}</p>}
+                            {errors.label && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.label}
+                                </p>
+                            )}
                         </div>
 
                         <div>
-                            <Label htmlFor="recipient_name">Nama Penerima</Label>
+                            <Label htmlFor="recipient_name">
+                                Nama Penerima
+                            </Label>
                             <Input
                                 id="recipient_name"
                                 value={data.recipient_name}
-                                onChange={(e) => setData('recipient_name', e.target.value)}
+                                onChange={(e) =>
+                                    setData('recipient_name', e.target.value)
+                                }
                             />
-                            {errors.recipient_name && <p className="mt-1 text-xs text-destructive">{errors.recipient_name}</p>}
+                            {errors.recipient_name && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.recipient_name}
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -263,9 +285,15 @@ function AddressDialog({
                             <Input
                                 id="phone"
                                 value={data.phone}
-                                onChange={(e) => setData('phone', e.target.value)}
+                                onChange={(e) =>
+                                    setData('phone', e.target.value)
+                                }
                             />
-                            {errors.phone && <p className="mt-1 text-xs text-destructive">{errors.phone}</p>}
+                            {errors.phone && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.phone}
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -273,9 +301,15 @@ function AddressDialog({
                             <Input
                                 id="province_name"
                                 value={data.province_name}
-                                onChange={(e) => setData('province_name', e.target.value)}
+                                onChange={(e) =>
+                                    setData('province_name', e.target.value)
+                                }
                             />
-                            {errors.province_name && <p className="mt-1 text-xs text-destructive">{errors.province_name}</p>}
+                            {errors.province_name && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.province_name}
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -283,9 +317,15 @@ function AddressDialog({
                             <Input
                                 id="city_name"
                                 value={data.city_name}
-                                onChange={(e) => setData('city_name', e.target.value)}
+                                onChange={(e) =>
+                                    setData('city_name', e.target.value)
+                                }
                             />
-                            {errors.city_name && <p className="mt-1 text-xs text-destructive">{errors.city_name}</p>}
+                            {errors.city_name && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.city_name}
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -293,9 +333,15 @@ function AddressDialog({
                             <Input
                                 id="district_name"
                                 value={data.district_name}
-                                onChange={(e) => setData('district_name', e.target.value)}
+                                onChange={(e) =>
+                                    setData('district_name', e.target.value)
+                                }
                             />
-                            {errors.district_name && <p className="mt-1 text-xs text-destructive">{errors.district_name}</p>}
+                            {errors.district_name && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.district_name}
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -303,10 +349,16 @@ function AddressDialog({
                             <Input
                                 id="postal_code"
                                 value={data.postal_code}
-                                onChange={(e) => setData('postal_code', e.target.value)}
+                                onChange={(e) =>
+                                    setData('postal_code', e.target.value)
+                                }
                                 maxLength={10}
                             />
-                            {errors.postal_code && <p className="mt-1 text-xs text-destructive">{errors.postal_code}</p>}
+                            {errors.postal_code && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.postal_code}
+                                </p>
+                            )}
                         </div>
 
                         <div className="col-span-2">
@@ -314,10 +366,16 @@ function AddressDialog({
                             <Textarea
                                 id="address_line"
                                 value={data.address_line}
-                                onChange={(e) => setData('address_line', e.target.value)}
+                                onChange={(e) =>
+                                    setData('address_line', e.target.value)
+                                }
                                 rows={3}
                             />
-                            {errors.address_line && <p className="mt-1 text-xs text-destructive">{errors.address_line}</p>}
+                            {errors.address_line && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    {errors.address_line}
+                                </p>
+                            )}
                         </div>
 
                         <div className="col-span-2">
@@ -325,7 +383,9 @@ function AddressDialog({
                             <Input
                                 id="notes"
                                 value={data.notes}
-                                onChange={(e) => setData('notes', e.target.value)}
+                                onChange={(e) =>
+                                    setData('notes', e.target.value)
+                                }
                                 placeholder="Patokan, lantai, dsb."
                             />
                         </div>
@@ -335,17 +395,26 @@ function AddressDialog({
                                 type="checkbox"
                                 id="is_default"
                                 checked={data.is_default}
-                                onChange={(e) => setData('is_default', e.target.checked)}
+                                onChange={(e) =>
+                                    setData('is_default', e.target.checked)
+                                }
                                 className="size-4"
                             />
-                            <Label htmlFor="is_default" className="cursor-pointer font-normal">
+                            <Label
+                                htmlFor="is_default"
+                                className="cursor-pointer font-normal"
+                            >
                                 Jadikan alamat utama
                             </Label>
                         </div>
                     </div>
 
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={onClose}>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={onClose}
+                        >
                             Batal
                         </Button>
                         <Button type="submit" disabled={processing}>
@@ -386,13 +455,18 @@ function DeleteDialog({
                     <DialogTitle>Hapus Alamat?</DialogTitle>
                 </DialogHeader>
                 <p className="text-sm text-muted-foreground">
-                    Alamat ini akan dihapus permanen dan tidak dapat dikembalikan.
+                    Alamat ini akan dihapus permanen dan tidak dapat
+                    dikembalikan.
                 </p>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>
                         Batal
                     </Button>
-                    <Button variant="destructive" onClick={submit} disabled={processing}>
+                    <Button
+                        variant="destructive"
+                        onClick={submit}
+                        disabled={processing}
+                    >
                         Hapus
                     </Button>
                 </DialogFooter>

@@ -28,9 +28,17 @@ final class CreateStockEntry
      */
     public function handle(Warehouse $warehouse, array $attributes, ?User $actor = null): StockEntry
     {
-        return DB::transaction(function () use ($warehouse, $attributes, $actor): StockEntry {
+        // Taken before the transaction opens (ADR-037): `DocumentNumber` runs
+        // a transaction of its own, which nested inside this one would be a
+        // savepoint — the counter's row lock would then be held for the whole
+        // length of this document's work, and every draft in the company would
+        // queue behind one row. A number burned by a draft that fails
+        // afterwards costs nothing.
+        $code = DocumentNumber::next(DocumentNumber::PREFIX_STOCK_ENTRY);
+
+        return DB::transaction(function () use ($warehouse, $attributes, $actor, $code): StockEntry {
             $entry = StockEntry::create([
-                'code' => DocumentNumber::next(DocumentNumber::PREFIX_STOCK_ENTRY),
+                'code' => $code,
                 'branch_id' => $warehouse->branch_id,
                 'warehouse_id' => $warehouse->getKey(),
                 'supplier_name' => $attributes['supplier_name'] ?? null,

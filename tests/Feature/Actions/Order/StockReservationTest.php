@@ -6,6 +6,7 @@ use App\Actions\Order\ReserveStock;
 use App\Enums\ReservationStatus;
 use App\Enums\StockMovementType;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\ReservationMissingException;
 use App\Models\Branch;
 use App\Models\Order;
 use App\Models\Product;
@@ -316,13 +317,24 @@ describe('CommitReservation', function () {
             ->and(Stock::acrossBranches()->sole()->quantity)->toBe(6);
     });
 
-    it('cannot commit a hold that was already released', function () {
+    it('refuses to commit an order whose holds were already released (HIGH-03)', function () {
         [$order, $variant] = orderAwaitingStock(10);
         reserveStock()->handle($order, [['variant' => $variant, 'quantity' => 4]]);
         releaseReservation()->handleForOrder($order);
 
-        expect(commitReservation()->handleForOrder($order))->toBe(0)
-            ->and(Stock::acrossBranches()->sole()->quantity)->toBe(10);
+        // Committing nothing and reporting success is what let an order be
+        // marked sold with no units leaving `stocks`; the refusal is the point.
+        expect(fn () => commitReservation()->handleForOrder($order))
+            ->toThrow(ReservationMissingException::class);
+
+        expect(Stock::acrossBranches()->sole()->quantity)->toBe(10)
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
+    });
+
+    it('commits nothing for an order that never held stock at all', function () {
+        $order = Order::factory()->create();
+
+        expect(commitReservation()->handleForOrder($order))->toBe(0);
     });
 
     it('commits every warehouse the order drew from', function () {

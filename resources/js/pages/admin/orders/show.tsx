@@ -108,8 +108,7 @@ export default function OrderShow({
         });
     };
 
-    const FulfillmentIcon =
-        order.fulfillment_type === 'pickup' ? Store : Truck;
+    const FulfillmentIcon = order.fulfillment_type === 'pickup' ? Store : Truck;
 
     const errorMessage =
         statusForm.errors.status ??
@@ -247,8 +246,7 @@ export default function OrderShow({
                                             <dd className="tabular-nums">
                                                 −
                                                 {formatRupiah(
-                                                    order.totals
-                                                        .discount_total,
+                                                    order.totals.discount_total,
                                                 )}
                                             </dd>
                                         </div>
@@ -281,8 +279,7 @@ export default function OrderShow({
                                         </dt>
                                         <dd className="tabular-nums">
                                             {formatWeight(
-                                                order.totals
-                                                    .total_weight_gram,
+                                                order.totals.total_weight_gram,
                                             )}
                                         </dd>
                                     </div>
@@ -608,8 +605,8 @@ export default function OrderShow({
                                 Batalkan {order.order_number}?
                             </DialogTitle>
                             <DialogDescription>
-                                Stok yang masih ditahan akan dilepas dan
-                                kembali dijual. Dana yang sudah diterima harus
+                                Stok yang masih ditahan akan dilepas dan kembali
+                                dijual. Dana yang sudah diterima harus
                                 dikembalikan lewat menu pembayaran secara
                                 terpisah.
                             </DialogDescription>

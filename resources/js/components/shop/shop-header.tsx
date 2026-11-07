@@ -304,7 +304,7 @@ function ShopperActions({ cartCount }: { cartCount: number }) {
                     {cartCount > 0 && (
                         <span
                             aria-hidden
-                            className="absolute -end-0.5 -top-0.5 flex size-4.5 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-medium tabular-nums text-primary-foreground"
+                            className="absolute -end-0.5 -top-0.5 flex size-4.5 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-medium text-primary-foreground tabular-nums"
                         >
                             {cartCount > 9 ? '9+' : cartCount}
                         </span>

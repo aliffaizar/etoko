@@ -111,14 +111,16 @@ it('updates the user\'s own address', function () {
     expect($address->fresh()->label)->toBe('Kantor');
 });
 
-it('returns 403 when updating another user\'s address', function () {
+it('returns 404 when updating another user\'s address', function () {
     $customer = User::factory()->customer()->create();
     $other = User::factory()->customer()->create();
     $address = Address::factory()->forUser($other)->create();
 
+    // 404, not 403 (LOW-02): the same choice orders make (ADR-027), so a
+    // guessed id cannot confirm that somebody else's address exists.
     $this->actingAs($customer)
         ->patch(route('shop.account.addresses.update', $address), addressPayload())
-        ->assertForbidden();
+        ->assertNotFound();
 });
 
 it('promotes other address to default when the current default is unmarked', function () {
@@ -145,14 +147,14 @@ it('deletes the user\'s own address', function () {
     expect(Address::find($address->getKey()))->toBeNull();
 });
 
-it('returns 403 when deleting another user\'s address', function () {
+it('returns 404 when deleting another user\'s address', function () {
     $customer = User::factory()->customer()->create();
     $other = User::factory()->customer()->create();
     $address = Address::factory()->forUser($other)->create();
 
     $this->actingAs($customer)
         ->delete(route('shop.account.addresses.destroy', $address))
-        ->assertForbidden();
+        ->assertNotFound();
 });
 
 it('promotes another address to default when the default address is deleted', function () {

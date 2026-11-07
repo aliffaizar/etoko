@@ -59,9 +59,17 @@ final class CreateStockOpname
             ]);
         }
 
-        return DB::transaction(function () use ($warehouse, $attributes, $actor, $variantIds): StockOpname {
+        // Taken before the transaction opens (ADR-037): `DocumentNumber` runs
+        // a transaction of its own, which nested inside this one would be a
+        // savepoint — the counter's row lock would then be held for the whole
+        // length of this document's work, and every draft in the company would
+        // queue behind one row. A number burned by a draft that fails
+        // afterwards costs nothing.
+        $code = DocumentNumber::next(DocumentNumber::PREFIX_STOCK_OPNAME);
+
+        return DB::transaction(function () use ($warehouse, $attributes, $actor, $variantIds, $code): StockOpname {
             $opname = StockOpname::create([
-                'code' => DocumentNumber::next(DocumentNumber::PREFIX_STOCK_OPNAME),
+                'code' => $code,
                 'branch_id' => $warehouse->branch_id,
                 'warehouse_id' => $warehouse->getKey(),
                 'status' => StockOpnameStatus::Draft,

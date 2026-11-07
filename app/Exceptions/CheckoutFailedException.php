@@ -34,6 +34,23 @@ class CheckoutFailedException extends RuntimeException
         return new self('Keranjang Anda kosong, jadi tidak ada yang bisa dipesan.');
     }
 
+    /**
+     * The cart changed while this checkout was being priced.
+     *
+     * Raised from inside the cart's row lock when the basket no longer holds
+     * what was priced a moment earlier — almost always a second checkout of
+     * the same cart that got there first (HIGH-01). Saying "already placed"
+     * rather than "empty" matters: the customer's order does exist, and
+     * telling them their cart is empty would read as having lost it.
+     */
+    public static function cartAlreadyPlaced(): self
+    {
+        return new self(
+            'Keranjang ini sudah diproses menjadi pesanan. Periksa daftar pesanan Anda '
+                .'sebelum memesan ulang.',
+        );
+    }
+
     public static function branchNotTrading(Branch $branch): self
     {
         return new self("Cabang {$branch->name} sedang tidak melayani pesanan. Pilih cabang lain.");

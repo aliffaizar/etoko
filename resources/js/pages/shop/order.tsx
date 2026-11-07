@@ -54,8 +54,7 @@ export default function OrderPage({
         });
     };
 
-    const FulfillmentIcon =
-        order.fulfillment_type === 'pickup' ? Store : Truck;
+    const FulfillmentIcon = order.fulfillment_type === 'pickup' ? Store : Truck;
 
     return (
         <>

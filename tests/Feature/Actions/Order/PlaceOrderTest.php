@@ -20,6 +20,8 @@ use App\Models\Stock;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Models\Warehouse;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 
 /*
  * Turning a cart into an order (P1-E7-T5).
@@ -77,6 +79,33 @@ function cartWith(ProductVariant $variant, int $quantity = 2, ?int $snapshot = n
     ]);
 
     return $cart;
+}
+
+/**
+ * Check out a cart that is emptied the moment after it has been priced.
+ *
+ * The window HIGH-01 lives in, made deterministic: the listener fires on the
+ * `SELECT` that `priceLines()` runs, deletes the lines the way the winning
+ * request would have, and gets out of the way — so `lockCart()` is reached
+ * with a priced basket that no longer exists.
+ */
+function placeOrderWithEmptiedCart(Cart $cart): Order
+{
+    $emptied = false;
+
+    DB::listen(function (QueryExecuted $query) use ($cart, &$emptied): void {
+        // Matched on the table name alone: MySQL quotes identifiers with
+        // backticks and SQLite with double quotes, and this test has to behave
+        // the same on both.
+        if ($emptied || ! str_starts_with($query->sql, 'select') || ! str_contains($query->sql, 'cart_items')) {
+            return;
+        }
+
+        $emptied = true;
+        DB::table('cart_items')->where('cart_id', $cart->getKey())->delete();
+    });
+
+    return placeOrder()->handle($cart, test()->branch, test()->customer, deliveryData());
 }
 
 /**
@@ -385,5 +414,53 @@ describe('what it refuses', function () {
 
         expect($order->items()->sole()->unit_price)->toBe(80_000)
             ->and($order->subtotal)->toBe(80_000);
+    });
+});
+
+describe('one cart, one order (HIGH-01)', function () {
+    it('refuses a second checkout of the same cart', function () {
+        $variant = checkoutVariant(10, 179_000);
+        $cart = cartWith($variant, 2);
+
+        $first = placeOrder()->handle($cart, $this->branch, $this->customer, deliveryData());
+
+        // The second request is the double-clicked button: the same cart, and
+        // the same model instance the controller would still be holding. Three
+        // parallel requests used to produce two full-priced orders and hold
+        // four units for a basket of two. Which of the two refusals answers
+        // depends on the timing — the re-price finds the basket empty, or
+        // `lockCart()` does — and both end the same way, with one order.
+        expect(fn () => placeOrder()->handle($cart, $this->branch, $this->customer, deliveryData()))
+            ->toThrow(CheckoutFailedException::class);
+
+        expect(Order::acrossBranches()->count())->toBe(1)
+            ->and(Order::acrossBranches()->sole()->getKey())->toBe($first->getKey())
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(2)
+            ->and((int) StockReservation::acrossBranches()->active()->sum('quantity'))->toBe(2);
+    });
+
+    it('refuses from inside the lock when the basket emptied after pricing', function () {
+        $variant = checkoutVariant(10, 100_000);
+        $cart = cartWith($variant, 2);
+
+        // Stands in for the request that lost the race: priced against a full
+        // basket, then asked to write it once the winner had emptied it. This
+        // is the path a plain `SELECT` would have got wrong, because this
+        // transaction's snapshot still shows the deleted rows.
+        expect(fn () => placeOrderWithEmptiedCart($cart))
+            ->toThrow(CheckoutFailedException::class, 'sudah diproses menjadi pesanan');
+
+        expect(Order::acrossBranches()->count())->toBe(0)
+            ->and((int) Stock::acrossBranches()->sum('reserved_quantity'))->toBe(0);
+    });
+
+    it('still places the order when the cart is untouched', function () {
+        $variant = checkoutVariant(10, 100_000);
+        $cart = cartWith($variant, 2);
+
+        $order = placeOrder()->handle($cart, $this->branch, $this->customer, deliveryData());
+
+        expect($order->items()->count())->toBe(1)
+            ->and($cart->items()->count())->toBe(0);
     });
 });

@@ -138,16 +138,6 @@ describe('a successful move', function () {
             ->and($history->note)->toContain($this->destination->name);
     });
 
-    it('moves a paid order without touching stock, because the goods are already gone', function () {
-        $order = orderHeldAtOrigin(3, originStock: 10);
-        app(TransitionOrderStatus::class)->handle($order, OrderStatus::Paid);
-
-        assignBranch()->handle($order->fresh(), $this->destination);
-
-        expect(Order::acrossBranches()->sole()->branch_id)->toBe($this->destination->getKey())
-            ->and(Stock::acrossBranches()->sole()->quantity)->toBe(7)
-            ->and(StockReservation::acrossBranches()->sole()->status)->toBe(ReservationStatus::Committed);
-    });
 });
 
 describe('a refused move', function () {
@@ -174,6 +164,27 @@ describe('a refused move', function () {
 
         expect(fn () => assignBranch()->handle($order, $this->destination))
             ->toThrow(CheckoutFailedException::class, 'sedang tidak melayani');
+    });
+
+    it('refuses a paid order, because its goods have already left the origin (MED-04)', function () {
+        $order = orderHeldAtOrigin(3, originStock: 10);
+        app(TransitionOrderStatus::class)->handle($order, OrderStatus::Paid);
+        stockAtDestination(10);
+
+        // Moving it used to change `branch_id` and nothing else: the
+        // destination got an order it never issued goods for, the origin was
+        // short for an order that was no longer its own, and no ledger row
+        // explained either side. Bringing the goods across is a stock transfer
+        // document (`P2-E3`), so until that exists the move is refused.
+        expect(fn () => assignBranch()->handle($order->fresh(), $this->destination))
+            ->toThrow(CheckoutFailedException::class, 'sudah dibayar');
+
+        $byBranch = Stock::acrossBranches()->get()->keyBy('branch_id');
+
+        expect(Order::acrossBranches()->sole()->branch_id)->toBe($this->origin->getKey())
+            ->and($byBranch[$this->origin->getKey()]->quantity)->toBe(7)
+            ->and($byBranch[$this->destination->getKey()]->quantity)->toBe(10)
+            ->and(StockReservation::acrossBranches()->sole()->status)->toBe(ReservationStatus::Committed);
     });
 
     it('refuses a shipped order, because the branch that shipped it is a fact', function () {

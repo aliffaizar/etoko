@@ -39,6 +39,19 @@ use Illuminate\Support\Facades\DB;
  */
 final class TransitionOrderStatus
 {
+    /**
+     * How many stock holds the most recent `handle()` call gave back.
+     *
+     * Read by the screens that cancel an order, so the message they show is
+     * built from what happened rather than from what usually happens (MED-03):
+     * cancelling an unpaid order releases its holds, cancelling a paid one
+     * releases nothing because the goods are already off the shelf, and
+     * telling staff their stock came back when it did not is how goods go
+     * missing on paper. Written on every call, so it always describes the
+     * transition the caller just asked for and nothing earlier.
+     */
+    public private(set) int $releasedHolds = 0;
+
     public function __construct(
         private readonly CommitReservation $commitReservation,
         private readonly ReleaseReservation $releaseReservation,
@@ -57,6 +70,8 @@ final class TransitionOrderStatus
         ?User $actor = null,
         ?string $note = null,
     ): Order {
+        $this->releasedHolds = 0;
+
         return DB::transaction(function () use ($order, $to, $actor, $note): Order {
             $locked = $this->lock($order);
             $from = $locked->status;
@@ -65,7 +80,7 @@ final class TransitionOrderStatus
                 throw IllegalOrderTransitionException::for($locked, $from, $to);
             }
 
-            $this->moveStock($locked, $to);
+            $this->releasedHolds = $this->moveStock($locked, $to);
 
             $locked->fill(['status' => $to] + $this->sideEffectsOf($locked, $to, $note));
             $locked->save();
@@ -104,21 +119,30 @@ final class TransitionOrderStatus
 
     /**
      * Take the order's stock where its new status says it should be.
+     *
+     * Returns how many holds were given back to the shelf, which is zero for
+     * every move that is not a release **and** for a release that found
+     * nothing left to release — an order already paid for holds no stock, it
+     * holds goods that have left the shelf, and cancelling it does not put
+     * them back. Callers need to tell those apart to say something true about
+     * it (MED-03).
      */
-    private function moveStock(Order $order, OrderStatus $to): void
+    private function moveStock(Order $order, OrderStatus $to): int
     {
         if ($to === OrderStatus::Paid) {
             $this->commitReservation->handleForOrder($order);
 
-            return;
+            return 0;
         }
 
         if ($to->releasesReservedStock()) {
-            $this->releaseReservation->handleForOrder(
+            return $this->releaseReservation->handleForOrder(
                 $order,
                 "Pesanan {$order->order_number} {$this->releaseWording($to)}.",
             );
         }
+
+        return 0;
     }
 
     /**

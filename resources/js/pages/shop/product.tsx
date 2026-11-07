@@ -170,7 +170,10 @@ export default function ShopProduct({
                                 setAddingToCart(true);
                                 router.post(
                                     cart.store().url,
-                                    { product_variant_id: selected.id, quantity: 1 },
+                                    {
+                                        product_variant_id: selected.id,
+                                        quantity: 1,
+                                    },
                                     {
                                         preserveScroll: true,
                                         onFinish: () => setAddingToCart(false),
@@ -183,7 +186,8 @@ export default function ShopProduct({
                                     {},
                                     {
                                         preserveScroll: true,
-                                        onSuccess: () => setWishlisted((w) => !w),
+                                        onSuccess: () =>
+                                            setWishlisted((w) => !w),
                                     },
                                 );
                             }}
@@ -387,7 +391,8 @@ function BuyActions({
     onAddToCart: () => void;
     onToggleWishlist: () => void;
 }) {
-    const disabled = !isSoldAtBranch || selected === null || !selected.is_in_stock;
+    const disabled =
+        !isSoldAtBranch || selected === null || !selected.is_in_stock;
 
     const reason = !isSoldAtBranch
         ? 'Cabang terpilih tidak menjual produk ini. Pilih cabang lain di header.'
@@ -416,7 +421,11 @@ function BuyActions({
                         size="lg"
                         variant="outline"
                         onClick={onToggleWishlist}
-                        aria-label={wishlisted ? 'Hapus dari wishlist' : 'Tambah ke wishlist'}
+                        aria-label={
+                            wishlisted
+                                ? 'Hapus dari wishlist'
+                                : 'Tambah ke wishlist'
+                        }
                         className={wishlisted ? 'text-destructive' : ''}
                     >
                         <Heart

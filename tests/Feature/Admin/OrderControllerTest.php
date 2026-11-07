@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Order\ReleaseReservation;
 use App\Actions\Order\ReserveStock;
 use App\Actions\Order\TransitionOrderStatus;
 use App\Enums\OrderStatus;
@@ -243,6 +244,24 @@ describe('moving the status', function () {
         $this->actingAs($this->branchAdmin)
             ->put(route('admin.orders.status.update', $order), ['status' => 'paid'])
             ->assertNotFound();
+    });
+
+    it('refuses to mark an order paid once its stock has been given back (HIGH-03)', function () {
+        $order = panelOrder($this->branch, $this->warehouse, 10, 2);
+        app(ReleaseReservation::class)->handleForOrder($order);
+
+        // Committing nothing and reporting success would sell the goods with no
+        // units leaving `stocks` — said in words here rather than as a 500.
+        $this->actingAs($this->branchAdmin)
+            ->put(route('admin.orders.status.update', $order), ['status' => 'paid'])
+            ->assertSessionHasErrors('status');
+
+        $order->refresh();
+
+        expect($order->status)->toBe(OrderStatus::PendingPayment)
+            ->and($order->payment_status)->toBe(PaymentStatus::Unpaid)
+            ->and(Stock::acrossBranches()->sole()->quantity)->toBe(10)
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
     });
 });
 

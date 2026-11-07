@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\StockReservation;
 use App\Scopes\BranchScope;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Carbon;
@@ -36,6 +37,11 @@ use Illuminate\Support\Facades\Log;
  *   pay for whose goods have already gone back on sale.
  * - **A hold with no order** (a timed cart, Phase 2). There is nothing to
  *   transition, so it is released directly.
+ * - **A hold left behind** by an order that moved out of `pending_payment`
+ *   without settling it. That should not happen, so it is released and
+ *   logged — and, since the sweep is batched, it is a query that names the
+ *   statuses it means rather than one that could reach a hold whose order is
+ *   still waiting to be paid (HIGH-03).
  *
  * `WithoutOverlapping` keeps two runs apart. The actions are each safe to run
  * twice — they re-read every row under its lock and skip holds already settled
@@ -72,6 +78,7 @@ class ExpireStockReservations implements ShouldQueue
 
         $this->expireOrders($transitionOrderStatus, $moment);
         $this->releaseOrphanHolds($releaseReservation, $moment);
+        $this->releaseStrandedHolds($releaseReservation, $moment);
     }
 
     /**
@@ -117,23 +124,77 @@ class ExpireStockReservations implements ShouldQueue
     }
 
     /**
-     * Release expired holds that belong to no order.
+     * Release expired holds that belong to no order at all.
      *
-     * Also catches holds left behind by an order that moved out of
-     * `pending_payment` without settling them, which should not happen — but
-     * a hold nothing will ever release is exactly the leak this job exists to
-     * prevent, so it is swept rather than trusted.
+     * `whereNull('order_id')` is what makes this query match its name, and
+     * leaving it out was HIGH-03: the previous version swept *every* expired
+     * hold, and because `expireOrders()` above had already finished the first
+     * `BATCH_SIZE` orders, this query picked up hold number 201 onwards —
+     * holds belonging to orders still sitting in `pending_payment`, untouched.
+     * Their stock went back on sale while the customer was still shown an
+     * order they could pay for, and `CommitReservation` has nothing left to
+     * commit when they do, so the goods would have been sold without ever
+     * leaving the ledger. One sweep over 220 such orders left exactly 20 in
+     * that state.
+     *
+     * A backlog is therefore worked off over several runs, in order: the
+     * orders first, their holds with them, and only ownerless holds here.
+     * That is what the class docblock promises, and now what the SQL says.
      */
     private function releaseOrphanHolds(ReleaseReservation $releaseReservation, Carbon $moment): void
     {
         $ids = StockReservation::withoutGlobalScope(BranchScope::class)
             ->expired($moment)
+            ->whereNull('order_id')
             ->orderBy('id')
             ->limit(self::BATCH_SIZE)
             ->pluck('id');
 
         foreach ($ids as $id) {
             $releaseReservation->handle($id, 'Penahanan stok kedaluwarsa dan dilepas otomatis.');
+        }
+    }
+
+    /**
+     * Release expired holds whose order has already moved past
+     * `pending_payment` without settling them.
+     *
+     * This should never find anything: every status that gives stock back goes
+     * through `TransitionOrderStatus`, which releases the holds as part of the
+     * move. But a hold nobody will ever release is the exact leak this job
+     * exists to prevent, so the case is swept rather than trusted — and it is
+     * a query of its own, naming the statuses it means, so that it can never
+     * again reach a hold whose order is still waiting to be paid.
+     *
+     * It is logged because finding one means something upstream is wrong, and
+     * a leak that is silently cleaned up is a leak nobody fixes.
+     */
+    private function releaseStrandedHolds(ReleaseReservation $releaseReservation, Carbon $moment): void
+    {
+        $ids = StockReservation::withoutGlobalScope(BranchScope::class)
+            ->expired($moment)
+            ->whereNotNull('order_id')
+            ->whereHas(
+                'order',
+                fn (Builder $order) => $order
+                    ->withoutGlobalScope(BranchScope::class)
+                    ->where('status', '!=', OrderStatus::PendingPayment),
+            )
+            ->orderBy('id')
+            ->limit(self::BATCH_SIZE)
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            $released = $releaseReservation->handle(
+                $id,
+                'Penahanan stok tertinggal dan dilepas otomatis.',
+            );
+
+            if ($released) {
+                Log::warning('Released a hold left behind by an order that had already moved on.', [
+                    'stock_reservation_id' => $id,
+                ]);
+            }
         }
     }
 }

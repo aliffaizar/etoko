@@ -163,3 +163,77 @@ describe('show', function () {
                 ->has('orders', 1));
     });
 });
+
+// ── Branch isolation (HIGH-04, BR-3, docs/04-rbac.md §"Kasus khusus") ──────────
+
+describe('what a branch admin may see', function () {
+    it('lists only the customers who have ordered at their own branch', function () {
+        $branch = Branch::factory()->create();
+        $elsewhere = Branch::factory()->create();
+        $actor = User::factory()->adminCabang($branch)->create();
+
+        $mine = User::factory()->customer()->create();
+        Order::factory()->forBranch($branch)->forCustomer($mine)->create();
+
+        $theirs = User::factory()->customer()->create();
+        Order::factory()->forBranch($elsewhere)->forCustomer($theirs)->create();
+
+        // Never ordered anywhere: nothing ties them to this branch either.
+        User::factory()->customer()->create();
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('customers.data', 1)
+                ->where('customers.data.0.id', $mine->getKey()));
+    });
+
+    it('answers 404 for a customer who has never ordered at their branch', function () {
+        $branch = Branch::factory()->create();
+        $elsewhere = Branch::factory()->create();
+        $actor = User::factory()->adminCabang($branch)->create();
+
+        $theirs = User::factory()->customer()->create();
+        Order::factory()->forBranch($elsewhere)->forCustomer($theirs)->create();
+        Address::factory()->forUser($theirs)->create();
+
+        // 404 rather than 403, the choice orders already make (ADR-027): a
+        // refusal that admits the record exists is itself a disclosure. What
+        // was being disclosed here is the company's whole customer base,
+        // delivery addresses included.
+        $this->actingAs($actor)
+            ->get(route('admin.customers.show', $theirs))
+            ->assertNotFound();
+    });
+
+    it('opens the profile of a customer who has ordered at their branch', function () {
+        $branch = Branch::factory()->create();
+        $actor = User::factory()->adminCabang($branch)->create();
+        $customer = User::factory()->customer()->create();
+        Order::factory()->forBranch($branch)->forCustomer($customer)->create();
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.show', $customer))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('customer.id', $customer->getKey()));
+    });
+
+    it('still shows central actors every customer', function () {
+        $actor = User::factory()->adminPusat()->create();
+        $branch = Branch::factory()->create();
+
+        $ordered = User::factory()->customer()->create();
+        Order::factory()->forBranch($branch)->forCustomer($ordered)->create();
+        $neverOrdered = User::factory()->customer()->create();
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->has('customers.data', 2));
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.show', $neverOrdered))
+            ->assertOk();
+    });
+});

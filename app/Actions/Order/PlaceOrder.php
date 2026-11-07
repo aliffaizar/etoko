@@ -44,7 +44,9 @@ use Illuminate\Support\Facades\DB;
  *   the figure they were shown. A price that has gone *down* is charged at the
  *   lower figure without comment — the customer is not worse off;
  * - the stock is still there, which `ReserveStock` settles from inside the row
- *   lock (BR-6).
+ *   lock (BR-6);
+ * - the cart is still the basket that was priced, which `lockCart()` settles
+ *   from inside the cart's own row lock, so one cart cannot become two orders.
  *
  * Prices are resolved **without a branch** (ADR-031): the website has one
  * catalogue and one price list. `branch_product_prices` waits for POS.
@@ -90,8 +92,18 @@ final class PlaceOrder
         // told about.
         $lines = $this->priceLines($cart, $branch);
 
-        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data): Order {
-            $order = $this->createOrder($branch, $customer, $actor, $fulfillment, $address, $lines, $data);
+        // Taken before the transaction opens (MED-06). `DocumentNumber` runs a
+        // transaction of its own, which nested inside this one would be a mere
+        // savepoint — the counter's row lock would then be held for the whole
+        // length of the checkout, and every checkout in the shop would queue
+        // behind that single row. A number burned by a checkout that fails
+        // afterwards costs nothing.
+        $orderNumber = DocumentNumber::next(DocumentNumber::PREFIX_ORDER);
+
+        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $orderNumber): Order {
+            $this->lockCart($cart, count($lines));
+
+            $order = $this->createOrder($orderNumber, $branch, $customer, $actor, $fulfillment, $address, $lines, $data);
 
             $this->createItems($order, $lines);
 
@@ -109,6 +121,45 @@ final class PlaceOrder
 
             return $order;
         });
+    }
+
+    /**
+     * Take the cart's row lock and refuse a basket that is no longer the one
+     * that was priced (HIGH-01).
+     *
+     * Without this, one cart could become two orders: a double-clicked button
+     * sends two requests, both read the same full cart outside any lock, and
+     * both run to completion — two orders at the full total, and twice the
+     * stock held for goods bought once. Three parallel requests on one cart
+     * reproduced it exactly: two orders of Rp358.000 each and four units held
+     * for a basket of two.
+     *
+     * Both reads here are **locking** reads, and that is not decoration: a
+     * plain `SELECT` would answer from the snapshot this transaction opened
+     * with, which still shows the items the winning request has since deleted.
+     * A locking read always sees the latest committed state, so the second
+     * request finds the empty cart the first one left behind.
+     *
+     * The line count has to match as well, because the prices and totals were
+     * settled before this lock was taken: a basket changed in another tab in
+     * that window would otherwise be charged as it was, not as it is. Both
+     * refusals roll the transaction back with nothing written.
+     *
+     * @param  int  $pricedLines  How many lines `priceLines()` settled on.
+     *
+     * @throws CheckoutFailedException
+     */
+    private function lockCart(Cart $cart, int $pricedLines): void
+    {
+        $locked = Cart::whereKey($cart->getKey())->lockForUpdate()->first();
+
+        if (! $locked instanceof Cart) {
+            throw CheckoutFailedException::cartAlreadyPlaced();
+        }
+
+        if ($locked->items()->lockForUpdate()->count() !== $pricedLines) {
+            throw CheckoutFailedException::cartAlreadyPlaced();
+        }
     }
 
     /**
@@ -301,6 +352,7 @@ final class PlaceOrder
      * @param  array{fulfillment_type: FulfillmentType, address_id?: int|null, customer_note?: string|null}  $data
      */
     private function createOrder(
+        string $orderNumber,
         Branch $branch,
         ?User $customer,
         ?User $actor,
@@ -319,7 +371,7 @@ final class PlaceOrder
         $tax = (int) round($subtotal * self::taxPercent() / 100);
 
         return Order::create([
-            'order_number' => DocumentNumber::next(DocumentNumber::PREFIX_ORDER),
+            'order_number' => $orderNumber,
             'user_id' => $customer?->getKey(),
             'branch_id' => $branch->getKey(),
             'channel' => OrderChannel::Online,

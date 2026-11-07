@@ -10,6 +10,7 @@ use App\Enums\PaymentStatus;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\ReservationMissingException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AssignOrderBranchRequest;
 use App\Http\Requests\Admin\IndexOrderRequest;
@@ -132,6 +133,12 @@ class OrderController extends Controller
             // Reaching `paid` takes the goods off the shelf, and the shelf can
             // be short if stock was issued out while the order waited.
             return back()->withErrors(['status' => $short->getMessage()]);
+        } catch (ReservationMissingException $noHold) {
+            // The order's stock was given back while it was still payable, so
+            // there is nothing to take off the shelf and marking it paid would
+            // sell goods the ledger never moved (HIGH-03). Said in words rather
+            // than as a 500: the order stays where it is until somebody looks.
+            return back()->withErrors(['status' => $noHold->getMessage()]);
         }
 
         Inertia::flash('toast', [
@@ -169,10 +176,29 @@ class OrderController extends Controller
 
         Inertia::flash('toast', [
             'type' => 'success',
-            'message' => "Pesanan {$order->order_number} dibatalkan. Stok yang ditahan sudah dilepas.",
+            'message' => "Pesanan {$order->order_number} dibatalkan. "
+                .$this->cancellationStockMessage($transition->releasedHolds),
         ]);
 
         return back();
+    }
+
+    /**
+     * What to tell the actor about the cancelled order's stock.
+     *
+     * Built from what the transition actually did (MED-03). An unpaid order's
+     * holds go back on the shelf; a paid order's goods have already left it,
+     * and `ReleaseReservation` correctly leaves committed holds alone — so the
+     * old wording, which always claimed the stock was released, told staff
+     * that goods were back when they were not. Phase 1 has no restock path for
+     * a cancelled sale at all (ADR-035), and the sentence says so rather than
+     * leaving somebody to find out from a stock count.
+     */
+    private function cancellationStockMessage(int $releasedHolds): string
+    {
+        return $releasedHolds > 0
+            ? 'Stok yang ditahan sudah dilepas.'
+            : 'Stok tidak dikembalikan otomatis; barang yang sudah keluar dibalik lewat dokumen retur.';
     }
 
     /**

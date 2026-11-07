@@ -1,6 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { Minus, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -70,7 +70,9 @@ function EmptyCart() {
             <ShoppingCart className="size-12 text-muted-foreground" />
             <div>
                 <p className="font-medium">Keranjang masih kosong</p>
-                <p className="text-sm text-muted-foreground">Temukan produk favorit Anda di toko kami.</p>
+                <p className="text-sm text-muted-foreground">
+                    Temukan produk favorit Anda di toko kami.
+                </p>
             </div>
             <Button asChild>
                 <Link href={catalogIndex().url}>Belanja Sekarang</Link>
@@ -95,6 +97,16 @@ function CartItemRow({ item }: { item: CartItemData }) {
     const [qty, setQty] = useState(item.quantity);
     const [updating, setUpdating] = useState(false);
 
+    /*
+     * The stepper moves first and asks the server after, so a refusal (stock
+     * ran out between page load and click) would otherwise leave the input
+     * showing a quantity the cart never accepted. The reloaded prop is the
+     * truth.
+     */
+    useEffect(() => {
+        setQty(item.quantity);
+    }, [item.quantity]);
+
     const updateQty = (newQty: number) => {
         const clamped = Math.max(0, Math.min(99, newQty));
         setQty(clamped);
@@ -115,7 +127,8 @@ function CartItemRow({ item }: { item: CartItemData }) {
     };
 
     const isLow =
-        item.variant.available_quantity !== null && qty >= item.variant.available_quantity;
+        item.variant.available_quantity !== null &&
+        qty >= item.variant.available_quantity;
 
     return (
         <div className="flex gap-4 p-4">
@@ -142,8 +155,12 @@ function CartItemRow({ item }: { item: CartItemData }) {
                 >
                     {item.variant.product_name}
                 </Link>
-                <span className="text-sm text-muted-foreground">{item.variant.name}</span>
-                <span className="text-sm font-medium">{formatRupiah(item.unit_price_snapshot)}</span>
+                <span className="text-sm text-muted-foreground">
+                    {item.variant.name}
+                </span>
+                <span className="text-sm font-medium">
+                    {formatRupiah(item.unit_price_snapshot)}
+                </span>
 
                 {isLow && (
                     <p className="text-xs text-destructive">
@@ -201,7 +218,9 @@ function CartItemRow({ item }: { item: CartItemData }) {
                     </Button>
                 </div>
 
-                <span className="text-sm font-semibold">{formatRupiah(item.unit_price_snapshot * qty)}</span>
+                <span className="text-sm font-semibold">
+                    {formatRupiah(item.unit_price_snapshot * qty)}
+                </span>
             </div>
         </div>
     );

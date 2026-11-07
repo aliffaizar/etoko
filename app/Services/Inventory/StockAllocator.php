@@ -122,7 +122,14 @@ final class StockAllocator
     }
 
     /**
-     * The branch's active warehouses, keyed by id.
+     * **Every** warehouse the branch has, keyed by id — inactive ones
+     * included, on purpose.
+     *
+     * The docblock used to say "active warehouses", which the query never did
+     * and must not do (LOW-06): the figure the storefront promised is the sum
+     * of the branch's `stocks` rows with no warehouse filter, so the sum
+     * checkout honours has to be the same one. `drawOrder()` explains that at
+     * length; this is only the query.
      *
      * Read across branches on purpose: checkout runs for the branch the
      * customer chose, which is not the actor's branch — a customer has none

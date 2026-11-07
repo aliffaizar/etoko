@@ -1,8 +1,10 @@
 <?php
 
 use App\Models\Branch;
+use App\Models\BranchProduct;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\Stock;
 use App\Models\User;
@@ -89,8 +91,7 @@ describe('store', function () {
         $this->post(route('shop.cart.store'), [
             'product_variant_id' => $variant->getKey(),
             'quantity' => 2,
-        ])->assertOk()
-            ->assertJsonStructure(['item_count']);
+        ])->assertRedirect();
 
         expect(Cart::count())->toBe(1)
             ->and(CartItem::first()->quantity)->toBe(2);
@@ -106,7 +107,7 @@ describe('store', function () {
             ->post(route('shop.cart.store'), [
                 'product_variant_id' => $variant->getKey(),
                 'quantity' => 1,
-            ])->assertOk();
+            ])->assertRedirect();
 
         expect($customer->cart->items()->count())->toBe(1);
     });
@@ -125,7 +126,15 @@ describe('store', function () {
         expect(CartItem::first()->quantity)->toBe(5);
     });
 
-    it('returns 422 when stock is insufficient', function () {
+    /*
+     * A refusal is an Inertia answer too (BUG-09).
+     *
+     * The actions used to reply with JSON, which Inertia rejects outright
+     * ("a plain JSON response was received") — so the shopper saw an error
+     * overlay on a *successful* add. Every outcome now redirects back and
+     * says what happened in a flash toast.
+     */
+    it('refuses to add more than the branch holds', function () {
         $customer = User::factory()->customer()->create();
         $product = Product::factory()->withDefaultVariant()->create();
         $variant = $product->variants->first();
@@ -133,7 +142,20 @@ describe('store', function () {
 
         $this->actingAs($customer)
             ->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 5])
-            ->assertStatus(422);
+            ->assertRedirect()
+            ->assertSessionHas('inertia.flash_data.toast.type', 'error');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    it('tells the shopper the item landed in the cart', function () {
+        $product = Product::factory()->withDefaultVariant()->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(10)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertRedirect()
+            ->assertSessionHas('inertia.flash_data.toast.type', 'success');
     });
 
     it('requires quantity to be at least 1', function () {
@@ -147,6 +169,111 @@ describe('store', function () {
     it('requires a valid product_variant_id', function () {
         $this->post(route('shop.cart.store'), ['product_variant_id' => 99999, 'quantity' => 1])
             ->assertSessionHasErrors('product_variant_id');
+    });
+
+    /*
+     * What may go in the basket at all (MED-02).
+     *
+     * `exists:product_variants,id` used to be the whole check, so a guessed id
+     * put an unreleased product — its name, its photo and its **price** — on
+     * the guesser's own cart page. The sale was never possible, because
+     * checkout asks these same questions again, but a pre-launch price is not
+     * public information.
+     */
+    it('refuses a variant whose product is not published', function () {
+        $product = Product::factory()->withDefaultVariant()->draft()->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(10)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertSessionHasErrors('product_variant_id');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    it('refuses a variant whose product is switched off', function () {
+        $product = Product::factory()->withDefaultVariant()->inactive()->create();
+        $variant = $product->variants->first();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertSessionHasErrors('product_variant_id');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    it('refuses a variant that is switched off itself', function () {
+        $product = Product::factory()->withDefaultVariant()->create();
+        $variant = $product->variants->first();
+        $variant->update(['is_active' => false]);
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(10)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertSessionHasErrors('product_variant_id');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    it('refuses a variant whose category has been switched off', function () {
+        $category = Category::factory()->create(['is_active' => false]);
+        $product = Product::factory()->withDefaultVariant()->for($category)->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(10)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertSessionHasErrors('product_variant_id');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    it('refuses a product the chosen branch does not stock (ADR-031)', function () {
+        $product = Product::factory()->withDefaultVariant()->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(10)->create();
+        BranchProduct::factory()->create([
+            'branch_id' => $this->branch->getKey(),
+            'product_id' => $product->getKey(),
+            'is_available' => false,
+        ]);
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 1])
+            ->assertSessionHasErrors('product_variant_id');
+
+        expect(CartItem::count())->toBe(0);
+    });
+
+    /*
+     * One definition of what a branch can sell (MED-01, ADR-033).
+     *
+     * The cart used to read a single `stocks` row, so a branch with two
+     * warehouses gave three different answers to one question: the product
+     * card summed both and promised 7, the cart refused at 3, and checkout
+     * would have served all 7.
+     */
+    it('counts every warehouse in the branch, like the rest of the shop', function () {
+        $overflow = Warehouse::factory()->for($this->branch)->create(['is_default' => false]);
+        $product = Product::factory()->withDefaultVariant()->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(3)->create();
+        Stock::factory()->inWarehouse($overflow)->forVariant($variant)->quantity(4)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 7])
+            ->assertRedirect();
+
+        expect(CartItem::first()->quantity)->toBe(7);
+    });
+
+    it('still refuses one unit more than the whole branch holds', function () {
+        $overflow = Warehouse::factory()->for($this->branch)->create(['is_default' => false]);
+        $product = Product::factory()->withDefaultVariant()->create();
+        $variant = $product->variants->first();
+        Stock::factory()->inWarehouse($this->warehouse)->forVariant($variant)->quantity(3)->create();
+        Stock::factory()->inWarehouse($overflow)->forVariant($variant)->quantity(4)->reserved(1)->create();
+
+        $this->post(route('shop.cart.store'), ['product_variant_id' => $variant->getKey(), 'quantity' => 7])
+            ->assertRedirect()
+            ->assertSessionHas('inertia.flash_data.toast.type', 'error');
+
+        expect(CartItem::count())->toBe(0);
     });
 });
 
@@ -163,7 +290,7 @@ describe('update', function () {
 
         $this->actingAs($customer)
             ->patch(route('shop.cart.update', $item), ['quantity' => 4])
-            ->assertOk();
+            ->assertRedirect();
 
         expect($item->fresh()->quantity)->toBe(4);
     });
@@ -177,7 +304,7 @@ describe('update', function () {
 
         $this->actingAs($customer)
             ->patch(route('shop.cart.update', $item), ['quantity' => 0])
-            ->assertOk();
+            ->assertRedirect();
 
         expect(CartItem::find($item->getKey()))->toBeNull();
     });
@@ -195,7 +322,7 @@ describe('update', function () {
             ->assertNotFound();
     });
 
-    it('returns 422 when new quantity exceeds available stock', function () {
+    it('refuses a new quantity that exceeds available stock', function () {
         $customer = User::factory()->customer()->create();
         $product = Product::factory()->withDefaultVariant()->create();
         $variant = $product->variants->first();
@@ -205,7 +332,10 @@ describe('update', function () {
 
         $this->actingAs($customer)
             ->patch(route('shop.cart.update', $item), ['quantity' => 10])
-            ->assertStatus(422);
+            ->assertRedirect()
+            ->assertSessionHas('inertia.flash_data.toast.type', 'error');
+
+        expect($item->fresh()->quantity)->toBe(1);
     });
 });
 
@@ -221,7 +351,7 @@ describe('destroy', function () {
 
         $this->actingAs($customer)
             ->delete(route('shop.cart.destroy', $item))
-            ->assertOk();
+            ->assertRedirect();
 
         expect(CartItem::find($item->getKey()))->toBeNull();
     });

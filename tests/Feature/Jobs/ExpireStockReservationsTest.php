@@ -136,6 +136,23 @@ it('releases an expired hold that belongs to no order', function () {
         ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
 });
 
+it('releases an expired hold left behind by an order that moved on', function () {
+    // Should never happen — every status that gives stock back releases its
+    // holds on the way through `TransitionOrderStatus` — but a hold nobody
+    // will ever release is the leak this job exists to prevent, so the case is
+    // swept rather than trusted. It is a query of its own precisely so that it
+    // cannot reach a hold whose order is still waiting to be paid (HIGH-03).
+    [$order] = orderWithHold(10, 4);
+    StockReservation::acrossBranches()->update(['expires_at' => now()->subMinute()]);
+    Order::acrossBranches()->whereKey($order->getKey())->update(['status' => OrderStatus::Processing]);
+
+    sweepReservations();
+
+    expect(StockReservation::acrossBranches()->sole()->status)->toBe(ReservationStatus::Released)
+        ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0)
+        ->and(Order::acrossBranches()->sole()->status)->toBe(OrderStatus::Processing);
+});
+
 it('never lowers a figure twice when run again', function () {
     [$order] = orderWithHold(10, 4);
     $moment = Carbon::now()->addMinutes(16);
@@ -166,4 +183,80 @@ it('is scheduled to run every minute', function () {
 
     expect($events)->not->toBeEmpty()
         ->and($events->first()->expression)->toBe('* * * * *');
+});
+
+describe('a backlog bigger than one batch (HIGH-03)', function () {
+    /**
+     * More expired holds than `BATCH_SIZE`, each on its own unpaid order.
+     *
+     * Written straight to the tables rather than through `ReserveStock`: two
+     * hundred and one real reservations would be two hundred and one
+     * transactions, and what is under test is which rows the sweep's queries
+     * pick, not how the holds were taken.
+     *
+     * @return array{0: int, 1: Stock}
+     */
+    function backlogOfUnpaidOrders(int $count): array
+    {
+        $warehouse = Warehouse::factory()->default()->create();
+        /** @var ProductVariant $variant */
+        $variant = Product::factory()->withDefaultVariant()->create()->variants()->sole();
+
+        $stock = Stock::factory()
+            ->inWarehouse($warehouse)
+            ->forVariant($variant)
+            ->quantity($count * 2)
+            ->reserved($count)
+            ->create();
+
+        foreach (range(1, $count) as $ignored) {
+            $order = Order::factory()->forBranch($warehouse->branch)->create();
+
+            StockReservation::factory()
+                ->inWarehouse($warehouse)
+                ->forVariant($variant)
+                ->forOrder($order)
+                ->quantity(1)
+                ->expired()
+                ->create();
+        }
+
+        return [$count, $stock];
+    }
+
+    it('never strips a hold from an order it has not expired', function () {
+        // The bug: `expireOrders()` finished the first 200 orders, and the
+        // orphan sweep then picked up holds 201 onwards — holds belonging to
+        // orders still sitting in `pending_payment`. Their stock went back on
+        // sale while the customer was still shown an order they could pay for,
+        // and paying it would have committed nothing at all.
+        [$total] = backlogOfUnpaidOrders(ExpireStockReservations::BATCH_SIZE + 5);
+
+        sweepReservations();
+
+        $stranded = Order::acrossBranches()
+            ->where('status', OrderStatus::PendingPayment)
+            ->whereDoesntHave('stockReservations', fn ($holds) => $holds->active())
+            ->count();
+
+        expect($stranded)->toBe(0);
+
+        $expired = Order::acrossBranches()->where('status', OrderStatus::Expired)->count();
+        $stillPending = Order::acrossBranches()->where('status', OrderStatus::PendingPayment)->count();
+
+        expect($expired)->toBe(ExpireStockReservations::BATCH_SIZE)
+            ->and($stillPending)->toBe($total - ExpireStockReservations::BATCH_SIZE)
+            ->and((int) Stock::acrossBranches()->sole()->reserved_quantity)->toBe($stillPending);
+    });
+
+    it('works the rest of the backlog off on the next run', function () {
+        [$total] = backlogOfUnpaidOrders(ExpireStockReservations::BATCH_SIZE + 5);
+
+        sweepReservations();
+        sweepReservations();
+
+        expect(Order::acrossBranches()->where('status', OrderStatus::Expired)->count())->toBe($total)
+            ->and(Order::acrossBranches()->where('status', OrderStatus::PendingPayment)->count())->toBe(0)
+            ->and((int) Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
+    });
 });

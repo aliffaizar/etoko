@@ -92,7 +92,8 @@ export default function Checkout({
 
     const form = useForm<CheckoutForm>({
         fulfillment_type: firstOption,
-        address_id: firstOption === 'delivery' ? (defaultAddress?.id ?? null) : null,
+        address_id:
+            firstOption === 'delivery' ? (defaultAddress?.id ?? null) : null,
         customer_note: '',
     });
 
@@ -109,7 +110,8 @@ export default function Checkout({
         form.setData({
             ...form.data,
             fulfillment_type: value,
-            address_id: value === 'pickup' ? null : (defaultAddress?.id ?? null),
+            address_id:
+                value === 'pickup' ? null : (defaultAddress?.id ?? null),
         });
     };
 
@@ -181,8 +183,7 @@ export default function Checkout({
 
                             <div className="grid gap-3 sm:grid-cols-2">
                                 {branch.fulfillment_options.map((option) => {
-                                    const Icon =
-                                        FULFILLMENT_ICON[option.value];
+                                    const Icon = FULFILLMENT_ICON[option.value];
                                     const selected =
                                         form.data.fulfillment_type ===
                                         option.value;
@@ -279,8 +280,7 @@ export default function Checkout({
                                                 <label
                                                     className={cn(
                                                         'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
-                                                        form.data
-                                                            .address_id ===
+                                                        form.data.address_id ===
                                                             address.id
                                                             ? 'border-primary bg-primary/5'
                                                             : 'hover:bg-accent',
@@ -317,8 +317,8 @@ export default function Checkout({
                                                             {
                                                                 address.district_name
                                                             }
-                                                            , {address.city_name}
                                                             ,{' '}
+                                                            {address.city_name},{' '}
                                                             {
                                                                 address.province_name
                                                             }{' '}
@@ -483,13 +483,14 @@ export default function Checkout({
                                 shortLines.length > 0
                             }
                         >
-                            {form.processing
-                                ? 'Memproses…'
-                                : 'Buat Pesanan'}
+                            {form.processing ? 'Memproses…' : 'Buat Pesanan'}
                         </Button>
 
                         <p className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                            <Clock aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+                            <Clock
+                                aria-hidden
+                                className="mt-0.5 size-3.5 shrink-0"
+                            />
                             Pembayaran manual: setelah pesanan dibuat, cabang
                             akan menghubungi Anda untuk konfirmasi. Pembayaran
                             online hadir pada tahap berikutnya.

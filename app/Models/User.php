@@ -202,4 +202,37 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                 ->whereNull('branch_id')
                 ->orWhere('branch_id', '!=', $branch->getKey()));
     }
+
+    /**
+     * The shoppers the given actor is allowed to see (HIGH-04, BR-3).
+     *
+     * Customers are company-wide: they hold no `branch_id`, and `User` carries
+     * no branch scope, so nothing narrowed this screen before — a branch admin
+     * could list every customer the company has and open any profile, with
+     * email, phone, delivery addresses and last sign-in. docs/04-rbac.md says
+     * otherwise in two places: the permission matrix gives a branch admin `○`
+     * ("their own branch's data only"), and the special-cases table reads
+     * "**Customer** — global, but a branch admin only sees customers who have
+     * ordered at their branch".
+     *
+     * That is what this says, and it says it once. `whereHas('orders')` is all
+     * it takes to be right: `Order` carries `BelongsToBranch`, so the relation
+     * is already narrowed to the actor's branch, and "has an order I can see"
+     * is exactly "has ordered from me". Central actors are narrowed by
+     * nothing, which is the same answer their order scope gives.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    #[Scope]
+    protected function customersVisibleTo(Builder $query, self $actor): Builder
+    {
+        $query->ofRole(UserRole::Customer);
+
+        if ($actor->isCentral()) {
+            return $query;
+        }
+
+        return $query->whereHas('orders');
+    }
 }

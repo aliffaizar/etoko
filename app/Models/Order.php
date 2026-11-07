@@ -226,6 +226,20 @@ class Order extends Model
      *
      * Moving an order means moving the stock it holds (P1-E7-T10), and stock
      * that has already left the shelf cannot be un-picked by changing a column.
+     *
+     * **Only `pending_payment` may be moved**, which is narrower than it used
+     * to be (MED-04, ADR-036). An unpaid order holds a reservation, and
+     * `AssignOrderBranch` can take that hold at the destination and give it
+     * back at the origin in one transaction. A paid one holds nothing: its
+     * goods have gone out of the origin's shelf as `sale_out`. Moving it used
+     * to change `branch_id` and nothing else, which left the destination with
+     * an order whose goods it never issued, the origin short of stock for an
+     * order that is no longer its own, and not one ledger row to explain
+     * either — permanently unreconcilable, against ADR-024, and against the
+     * destination-stock validation `P1-E7-T10` promised.
+     *
+     * Moving goods between branches is a stock transfer document, which is
+     * `P2-E3`. Until that exists, this says no.
      */
     public function branchReassignmentBlockedReason(): ?string
     {
@@ -235,6 +249,11 @@ class Order extends Model
 
         if (in_array($this->status, [OrderStatus::Shipped, OrderStatus::Delivered], strict: true)) {
             return 'Pesanan sudah dikirim, jadi cabang pemrosesnya tidak dapat dipindahkan.';
+        }
+
+        if ($this->status !== OrderStatus::PendingPayment) {
+            return 'Pesanan yang sudah dibayar tidak dapat dipindahkan cabang, karena barangnya sudah '
+                .'keluar dari stok cabang asal. Pemindahan barang antar cabang memakai dokumen transfer stok.';
         }
 
         return null;

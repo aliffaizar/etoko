@@ -4,10 +4,12 @@ namespace App\Actions\Order;
 
 use App\Enums\ReservationStatus;
 use App\Enums\StockMovementType;
+use App\Exceptions\ReservationMissingException;
 use App\Models\Order;
 use App\Models\StockReservation;
 use App\Scopes\BranchScope;
 use App\Services\Inventory\StockLedger;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,18 +36,44 @@ final class CommitReservation
      * them are, because an order half-shipped out of the ledger is a figure
      * nobody can explain.
      *
+     * An order whose holds have been **released** is refused rather than
+     * quietly committing nothing (HIGH-03). That state means its stock went
+     * back on the shelf while it was still payable, and marking it sold anyway
+     * would take money for goods that never left `stocks` — the ledger would
+     * then disagree with reality for ever, which is the one thing ADR-024 is
+     * for. It is the silence that let the expiry sweep's batching bug end as
+     * unexplainable stock, so the silence is what goes.
+     *
+     * Two neighbouring states are **not** that, and both pass quietly:
+     *
+     * - **Already committed.** The goods are off the shelf and the ledger says
+     *   so; running twice has nothing left to do, which is what makes this
+     *   action safe to retry.
+     * - **No holds at all.** Nothing was ever reserved for this order — every
+     *   line's variant has since been hard-deleted from the catalogue, or it
+     *   is a Phase 2 order that reserves nothing — so there is no figure to
+     *   disagree with.
+     *
      * Returns how many holds were committed.
+     *
+     * @throws ReservationMissingException
      */
     public function handleForOrder(Order $order): int
     {
         return DB::transaction(function () use ($order): int {
-            $ids = StockReservation::withoutGlobalScope(BranchScope::class)
-                ->where('order_id', $order->getKey())
+            $holds = StockReservation::withoutGlobalScope(BranchScope::class)
+                ->where('order_id', $order->getKey());
+
+            $ids = (clone $holds)
                 ->active()
                 ->orderBy('warehouse_id')
                 ->orderBy('product_variant_id')
                 ->pluck('id')
                 ->all();
+
+            if ($ids === [] && $this->holdsWereGivenBack(clone $holds)) {
+                throw ReservationMissingException::for($order);
+            }
 
             $committed = 0;
 
@@ -55,6 +83,25 @@ final class CommitReservation
 
             return $committed;
         });
+    }
+
+    /**
+     * Whether any of this order's holds was given back to the shelf.
+     *
+     * Only ever asked when none of them is active any more, so a row that is
+     * not `Committed` can only be a released one: the goods are back on the
+     * shelf and nothing in the ledger says this order ever got them. Called
+     * with the holds in either of the two states this can be in — all
+     * released, or a mixture with some committed — because a half-released
+     * order is no more explainable than a fully released one.
+     *
+     * @param  Builder<StockReservation>  $holds
+     */
+    private function holdsWereGivenBack(Builder $holds): bool
+    {
+        return $holds
+            ->whereNot('status', ReservationStatus::Committed)
+            ->exists();
     }
 
     /**

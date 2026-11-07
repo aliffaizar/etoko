@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Concerns\Auditable;
 use App\Concerns\BelongsToBranch;
 use Database\Factories\StockFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -30,6 +29,17 @@ use Illuminate\Support\Carbon;
  * `min_quantity`, `max_quantity` and `shelf_location` are plain settings and
  * are written by `SetStockThresholds`.
  *
+ * **Not `Auditable`**, for the reason ADR-024 already gives `StockMovement`:
+ * the ledger *is* the audit trail for stock, and auditing the figure it
+ * explains stores every number twice and gives reconciliation two sources that
+ * can disagree (MED-05). It was audited until now, which cost an extra
+ * `INSERT` with a JSON before/after payload on every reservation, every sale
+ * and every posted document line — inside the transaction that is holding the
+ * stock row's lock, so it also lengthened the window every checkout contends
+ * for. The threshold columns are the only ones that are not derivable from the
+ * ledger, and their history can be restored by auditing just those if it is
+ * ever wanted.
+ *
  * @property int $id
  * @property int $warehouse_id
  * @property int $branch_id
@@ -53,7 +63,7 @@ use Illuminate\Support\Carbon;
 class Stock extends Model
 {
     /** @use HasFactory<StockFactory> */
-    use Auditable, BelongsToBranch, HasFactory;
+    use BelongsToBranch, HasFactory;
 
     /**
      * @return array<string, string>

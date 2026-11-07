@@ -114,7 +114,8 @@ class OrderController extends Controller
 
         Inertia::flash('toast', [
             'type' => 'success',
-            'message' => "Pesanan {$order->order_number} dibatalkan. Stok yang ditahan sudah dilepas.",
+            'message' => "Pesanan {$order->order_number} dibatalkan."
+                .($transition->releasedHolds > 0 ? ' Stok yang ditahan sudah dilepas.' : ''),
         ]);
 
         return back();

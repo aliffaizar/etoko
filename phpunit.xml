@@ -11,6 +11,15 @@
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
+        <!--
+            Several real processes against MySQL at once (MED-07). They skip
+            themselves on any other driver, so the default in-memory run stays
+            fast and honest; the MySQL command in docs/06-conventions.md is
+            what actually runs them.
+        -->
+        <testsuite name="Concurrency">
+            <directory>tests/Concurrency</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

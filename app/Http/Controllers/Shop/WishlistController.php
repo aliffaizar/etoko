@@ -10,15 +10,16 @@ use App\Services\Pricing\EffectivePriceResolver;
 use App\Services\Pricing\ResolvedPrice;
 use App\Support\StorefrontCatalogQuery;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
  * Customer wishlist (P1-E6-T6).
  *
- * Toggle: POST to add, DELETE to remove. Returns JSON for the heart button.
- * The list page is a standard Inertia render.
+ * Toggle: one POST that adds or removes. It answers with `back()` rather than
+ * JSON, because the heart button is an Inertia visit and Inertia refuses a
+ * plain JSON body; the outcome is reported with a flash toast.
  *
  * "Move to cart" on the list page sends a POST to CartController::store with
  * the product's default variant — the redirect goes to the cart page.
@@ -72,7 +73,7 @@ class WishlistController extends Controller
     /**
      * Add or remove a product from the wishlist (toggle).
      */
-    public function toggle(int $productId): JsonResponse
+    public function toggle(int $productId): RedirectResponse
     {
         $product = Product::findOrFail($productId);
         $user = auth()->user();
@@ -81,16 +82,15 @@ class WishlistController extends Controller
 
         if ($existing instanceof Wishlist) {
             $existing->delete();
-            $wishlisted = false;
+            $message = "{$product->name} dihapus dari wishlist.";
         } else {
             $user->wishlists()->create(['product_id' => $product->getKey()]);
-            $wishlisted = true;
+            $message = "{$product->name} ditambahkan ke wishlist.";
         }
 
-        return response()->json([
-            'wishlisted' => $wishlisted,
-            'count' => $user->wishlists()->count(),
-        ]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $message]);
+
+        return back();
     }
 
     /**

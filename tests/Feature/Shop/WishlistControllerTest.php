@@ -57,8 +57,8 @@ it('adds a product to the wishlist', function () {
 
     $this->actingAs($customer)
         ->post(route('shop.account.wishlist.toggle', $product))
-        ->assertOk()
-        ->assertJsonFragment(['wishlisted' => true]);
+        ->assertRedirect()
+        ->assertSessionHas('inertia.flash_data.toast.message', "{$product->name} ditambahkan ke wishlist.");
 
     expect($customer->wishlists()->where('product_id', $product->getKey())->exists())->toBeTrue();
 });
@@ -70,8 +70,8 @@ it('removes a product from the wishlist when it is already wishlisted', function
 
     $this->actingAs($customer)
         ->post(route('shop.account.wishlist.toggle', $product))
-        ->assertOk()
-        ->assertJsonFragment(['wishlisted' => false]);
+        ->assertRedirect()
+        ->assertSessionHas('inertia.flash_data.toast.message', "{$product->name} dihapus dari wishlist.");
 
     expect($customer->wishlists()->where('product_id', $product->getKey())->exists())->toBeFalse();
 });
@@ -91,7 +91,12 @@ it('redirects guests to the login page on toggle', function () {
         ->assertRedirect(route('login'));
 });
 
-it('returns the updated wishlist count after toggle', function () {
+/*
+ * The heart button is an Inertia visit, so the toggle answers with `back()`
+ * and the count is read off the reloaded page rather than a JSON body
+ * (BUG-09).
+ */
+it('leaves the wishlist count in step after a toggle', function () {
     $customer = User::factory()->customer()->create();
     $p1 = Product::factory()->withDefaultVariant()->create();
     $p2 = Product::factory()->withDefaultVariant()->create();
@@ -99,5 +104,7 @@ it('returns the updated wishlist count after toggle', function () {
 
     $this->actingAs($customer)
         ->post(route('shop.account.wishlist.toggle', $p2))
-        ->assertJsonFragment(['count' => 2]);
+        ->assertRedirect();
+
+    expect($customer->wishlists()->count())->toBe(2);
 });

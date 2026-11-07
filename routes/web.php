@@ -107,7 +107,16 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
      */
     Route::middleware(['auth', 'verified'])->prefix('checkout')->name('checkout.')->group(function () {
         Route::get('/', [CheckoutController::class, 'index'])->name('index');
-        Route::post('/', [CheckoutController::class, 'store'])->name('store');
+
+        /*
+         * Throttled as a second layer under `PlaceOrder`'s cart lock (HIGH-01).
+         * The lock is what makes one cart into one order; this only keeps a
+         * stuck button from spending database work on refusals. General rate
+         * limiting is still `P2-E9-T4`'s job.
+         */
+        Route::post('/', [CheckoutController::class, 'store'])
+            ->middleware('throttle:10,1')
+            ->name('store');
     });
 
     // Customer account — requires authentication

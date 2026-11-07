@@ -3,7 +3,6 @@
 namespace App\Actions\Order;
 
 use App\Enums\BranchStatus;
-use App\Enums\OrderStatus;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\InsufficientStockException;
 use App\Models\Branch;
@@ -38,8 +37,10 @@ use LogicException;
  * order would be left holding nothing at all.
  *
  * An order whose stock has already left the shelf cannot be moved — see
- * `Order::branchReassignmentBlockedReason()`. Once it is `shipped`, the branch
- * that shipped it is a fact rather than an assignment.
+ * `Order::branchReassignmentBlockedReason()`, which allows `pending_payment`
+ * and nothing else (ADR-036). Once an order is paid for, the branch that
+ * issued the goods is a fact rather than an assignment, and bringing them to
+ * another branch is a stock transfer document (`P2-E3`).
  */
 final class AssignOrderBranch
 {
@@ -70,30 +71,48 @@ final class AssignOrderBranch
             $origin = $order->branch;
             $locked = $this->lock($order);
 
-            // Already paid means the stock is off the shelf rather than held:
-            // there is no hold to move, and shifting on-hand between branches
-            // is a stock transfer document (`P2-E6`), not a column change.
-            $holdsStock = $locked->status === OrderStatus::PendingPayment;
+            // Asked again under the lock, not merely before the transaction:
+            // the order may have been paid for in between, and a paid order's
+            // goods are off the shelf rather than held, so there would be no
+            // hold to move and `branch_id` would travel on its own (MED-04).
+            if ($reason = $locked->branchReassignmentBlockedReason()) {
+                throw new CheckoutFailedException($reason);
+            }
 
             // Captured *before* the destination's holds exist, so releasing the
             // origin's cannot reach the ones about to be taken.
-            $originHolds = $holdsStock ? $this->activeHoldIds($locked) : [];
-            $expiresAt = $holdsStock ? $this->expiryOf($originHolds) : null;
+            $originHolds = $this->activeHoldIds($locked);
+            $expiresAt = $this->expiryOf($originHolds);
 
             $locked->setRelation('branch', $destination);
             $locked->branch_id = $destination->getKey();
 
-            if ($holdsStock) {
-                // Destination first: if it cannot cover the order, nothing has
-                // been given up and the transaction rolls back untouched.
-                $this->reserveStock->handle($locked, $this->linesOf($locked), $expiresAt);
+            $lines = $this->linesOf($locked);
 
-                foreach ($originHolds as $id) {
-                    $this->releaseReservation->handle(
-                        $id,
-                        "Pesanan {$locked->order_number} dipindahkan ke cabang {$destination->name}.",
-                    );
-                }
+            // Every line's variant has been hard-deleted from the catalogue, so
+            // there is nothing to reserve anywhere. `ReserveStock` answers an
+            // empty list with a `LogicException` — a 500 — and this is a
+            // refusal somebody typed into a form, so it is said in words
+            // instead (LOW-08).
+            if ($lines === []) {
+                throw new CheckoutFailedException(
+                    "Pesanan {$locked->order_number} tidak punya produk yang masih ada di katalog, "
+                        .'jadi cabangnya tidak dapat dipindahkan.',
+                );
+            }
+
+            // Destination first: if it cannot cover the order, nothing has
+            // been given up and the transaction rolls back untouched. This is
+            // the destination-stock validation `P1-E7-T10` asks for, and it is
+            // only sound because the status above guarantees there is a hold to
+            // move in the first place.
+            $this->reserveStock->handle($locked, $lines, $expiresAt);
+
+            foreach ($originHolds as $id) {
+                $this->releaseReservation->handle(
+                    $id,
+                    "Pesanan {$locked->order_number} dipindahkan ke cabang {$destination->name}.",
+                );
             }
 
             $locked->save();

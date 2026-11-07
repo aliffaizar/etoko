@@ -38,9 +38,13 @@ export default function WishlistPage({ items }: WishlistProps) {
                     <div className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
                         <Heart className="mx-auto mb-3 size-10" />
                         <p className="font-medium">Wishlist masih kosong</p>
-                        <p className="mt-1 text-sm">Simpan produk yang Anda sukai untuk membeli nanti.</p>
+                        <p className="mt-1 text-sm">
+                            Simpan produk yang Anda sukai untuk membeli nanti.
+                        </p>
                         <Button asChild variant="outline" className="mt-4">
-                            <Link href={catalogIndex().url}>Jelajahi Produk</Link>
+                            <Link href={catalogIndex().url}>
+                                Jelajahi Produk
+                            </Link>
                         </Button>
                     </div>
                 ) : (
@@ -85,7 +89,10 @@ function WishlistCard({ item }: { item: WishlistItem }) {
     return (
         <div className="group flex flex-col overflow-hidden rounded-lg border">
             {/* Image */}
-            <Link href={`/produk/${item.slug}`} className="relative overflow-hidden bg-muted">
+            <Link
+                href={`/produk/${item.slug}`}
+                className="relative overflow-hidden bg-muted"
+            >
                 <div className="aspect-square">
                     {item.image_url ? (
                         <img
@@ -102,26 +109,34 @@ function WishlistCard({ item }: { item: WishlistItem }) {
 
                 {!item.is_in_stock && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/70">
-                        <span className="text-sm font-medium text-muted-foreground">Stok habis</span>
+                        <span className="text-sm font-medium text-muted-foreground">
+                            Stok habis
+                        </span>
                     </div>
                 )}
             </Link>
 
             {/* Content */}
             <div className="flex flex-1 flex-col gap-2 p-3">
-                <Link href={`/produk/${item.slug}`} className="line-clamp-2 text-sm font-medium hover:underline">
+                <Link
+                    href={`/produk/${item.slug}`}
+                    className="line-clamp-2 text-sm font-medium hover:underline"
+                >
                     {item.name}
                 </Link>
 
                 <div className="mt-auto">
                     {item.price ? (
                         <div className="flex items-baseline gap-1">
-                            <span className="font-semibold">{formatRupiah(item.price)}</span>
-                            {item.compare_at_price && item.compare_at_price > item.price && (
-                                <span className="text-xs text-muted-foreground line-through">
-                                    {formatRupiah(item.compare_at_price)}
-                                </span>
-                            )}
+                            <span className="font-semibold">
+                                {formatRupiah(item.price)}
+                            </span>
+                            {item.compare_at_price &&
+                                item.compare_at_price > item.price && (
+                                    <span className="text-xs text-muted-foreground line-through">
+                                        {formatRupiah(item.compare_at_price)}
+                                    </span>
+                                )}
                         </div>
                     ) : (
                         <span className="text-sm text-muted-foreground">–</span>
@@ -134,7 +149,11 @@ function WishlistCard({ item }: { item: WishlistItem }) {
                         variant="outline"
                         className="flex-1"
                         onClick={addToCart}
-                        disabled={!item.is_in_stock || !item.default_variant_id || adding}
+                        disabled={
+                            !item.is_in_stock ||
+                            !item.default_variant_id ||
+                            adding
+                        }
                     >
                         <ShoppingCart className="size-3.5" />
                         {adding ? 'Menambah…' : 'Ke Keranjang'}
