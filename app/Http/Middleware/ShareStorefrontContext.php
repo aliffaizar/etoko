@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Services\Branch\StorefrontBranch;
+use App\Services\Cart\CartService;
 use Closure;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -25,7 +26,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ShareStorefrontContext
 {
-    public function __construct(private StorefrontBranch $storefront) {}
+    public function __construct(
+        private StorefrontBranch $storefront,
+        private CartService $cart,
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -37,6 +41,10 @@ class ShareStorefrontContext
             // confirm instead of implying they already chose.
             'has_chosen_branch' => $this->storefront->hasChosen(),
             'categories' => $this->categoryMenu(),
+            // The header's cart badge. Shared here rather than per page
+            // because the badge is in the shell: a page that forgot to send it
+            // would silently show an empty cart (P1-E7-T4).
+            'cart_count' => $this->cart->itemCount($request->user()),
         ]);
 
         return $next($request);

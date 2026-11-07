@@ -30,9 +30,13 @@ class CartItemFactory extends Factory
 
     public function forVariant(ProductVariant $variant): static
     {
+        // `effectivePrice()` reads through to the product, and
+        // `Model::preventLazyLoading()` is on outside production.
+        $variant->loadMissing('product');
+
         return $this->state([
             'product_variant_id' => $variant->getKey(),
-            'unit_price_snapshot' => $variant->price ?? $variant->product?->base_price ?? 10_000,
+            'unit_price_snapshot' => $variant->effectivePrice(),
         ]);
     }
 }

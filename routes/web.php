@@ -5,7 +5,9 @@ use App\Http\Controllers\Shop\AddressController;
 use App\Http\Controllers\Shop\BranchController;
 use App\Http\Controllers\Shop\CartController;
 use App\Http\Controllers\Shop\CatalogController;
+use App\Http\Controllers\Shop\CheckoutController;
 use App\Http\Controllers\Shop\HomeController;
+use App\Http\Controllers\Shop\OrderController;
 use App\Http\Controllers\Shop\ProductController;
 use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
@@ -95,6 +97,19 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
         Route::delete('{cartItem}', [CartController::class, 'destroy'])->name('destroy');
     });
 
+    /*
+     * Checkout (P1-E7-T4, T5).
+     *
+     * Signed in only: an order belongs to an account, and there is nowhere to
+     * send a guest's order confirmation yet. A guest who gets this far is sent
+     * to the login screen and lands back here, with their cart merged into
+     * their account by `MergeGuestCart` (P1-E6-T5).
+     */
+    Route::middleware(['auth', 'verified'])->prefix('checkout')->name('checkout.')->group(function () {
+        Route::get('/', [CheckoutController::class, 'index'])->name('index');
+        Route::post('/', [CheckoutController::class, 'store'])->name('store');
+    });
+
     // Customer account — requires authentication
     Route::middleware(['auth', 'verified'])->prefix('akun')->name('account.')->group(function () {
         Route::prefix('alamat')->name('addresses.')->group(function () {
@@ -107,6 +122,19 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
         Route::prefix('wishlist')->name('wishlist.')->group(function () {
             Route::get('/', [WishlistController::class, 'index'])->name('index');
             Route::post('{product}/toggle', [WishlistController::class, 'toggle'])->name('toggle');
+        });
+
+        /*
+         * The customer's own orders (P1-E7-T6, T9).
+         *
+         * Scoped by `user_id` in the controller, not by policy: a shopper
+         * holds no `orders.*` permission, and another customer's order is not
+         * found rather than refused so nothing leaks about it existing.
+         */
+        Route::prefix('pesanan')->name('orders.')->group(function () {
+            Route::get('/', [OrderController::class, 'index'])->name('index');
+            Route::get('{order}', [OrderController::class, 'show'])->name('show');
+            Route::post('{order}/batal', [OrderController::class, 'cancel'])->name('cancel');
         });
     });
 });

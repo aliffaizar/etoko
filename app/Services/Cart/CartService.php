@@ -8,8 +8,8 @@ use App\Models\CartItem;
 use App\Models\ProductVariant;
 use App\Models\Stock;
 use App\Models\User;
-use App\Services\Branch\StorefrontBranch;
 use App\Services\Pricing\EffectivePriceResolver;
+use App\Services\Pricing\ResolvedPrice;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Support\Str;
 
@@ -25,9 +25,12 @@ use Illuminate\Support\Str;
  * alongside the queue workers.
  *
  * The service never reads from `BranchContext` — the cart belongs to the
- * visitor, not to a staff session (ADR-028). It reads the branch from the
- * cart itself (which the caller sets when first adding an item) or from
- * `StorefrontBranch` as the default.
+ * visitor, not to a staff session (ADR-028). The branch it checks stock
+ * against is the one the caller passes in, or the cart's own; a branch the
+ * service went looking for itself would be a second answer to a question the
+ * controller has already answered.
+ *
+ * Prices are resolved **without a branch** (ADR-031) — see `catalogPrice()`.
  */
 final class CartService
 {
@@ -35,7 +38,6 @@ final class CartService
 
     public function __construct(
         private readonly Session $session,
-        private readonly StorefrontBranch $storefrontBranch,
         private readonly EffectivePriceResolver $priceResolver,
     ) {}
 
@@ -86,7 +88,7 @@ final class CartService
             return false;
         }
 
-        $price = $this->priceResolver->for($variant, $branch ?? $cart->branch);
+        $price = $this->catalogPrice($variant);
 
         $existing = $cart->items()->where('product_variant_id', $variant->getKey())->first();
 
@@ -134,10 +136,24 @@ final class CartService
             return false;
         }
 
-        $price = $this->priceResolver->for($item->variant, $cart->branch);
+        $price = $this->catalogPrice($item->variant);
         $item->update(['quantity' => $quantity, 'unit_price_snapshot' => $price->amount]);
 
         return true;
+    }
+
+    /**
+     * The price the storefront charges for a variant.
+     *
+     * Resolved **without a branch** (ADR-031): the website has one catalogue
+     * and one price, and `branch_product_prices` is never read from it — that
+     * table waits for POS. Passing the chosen branch here would let a cart
+     * line snapshot a branch price while the product page that put it there
+     * quoted the catalogue price, so the two have to ask the same question.
+     */
+    private function catalogPrice(ProductVariant $variant): ResolvedPrice
+    {
+        return $this->priceResolver->for($variant, null);
     }
 
     /**
@@ -199,13 +215,22 @@ final class CartService
     }
 
     /**
-     * The number of items in the visitor's cart, or zero when there is none.
-     * Used for the cart badge in the header.
+     * How many units are in the visitor's cart, or zero when there is none.
+     * Drives the header badge.
+     *
+     * **Units, not lines.** Every "N item" the application prints — the cart
+     * summary, the checkout summary, an order row — is
+     * `Cart::totalQuantity()`, a sum of quantities. A badge that counted rows
+     * instead would show "1" beside a summary reading "4 item" on the same
+     * screen, which is the kind of disagreement nobody can resolve by looking.
      */
     public function itemCount(?User $user): int
     {
         if ($user instanceof User) {
-            return CartItem::whereHas('cart', fn ($q) => $q->where('user_id', $user->getKey()))->count();
+            return (int) CartItem::whereHas(
+                'cart',
+                fn ($q) => $q->where('user_id', $user->getKey()),
+            )->sum('quantity');
         }
 
         $token = $this->session->get(self::SESSION_KEY);
@@ -214,7 +239,10 @@ final class CartService
             return 0;
         }
 
-        return CartItem::whereHas('cart', fn ($q) => $q->where('session_token', $token)->whereNull('user_id'))->count();
+        return (int) CartItem::whereHas(
+            'cart',
+            fn ($q) => $q->where('session_token', $token)->whereNull('user_id'),
+        )->sum('quantity');
     }
 
     /**

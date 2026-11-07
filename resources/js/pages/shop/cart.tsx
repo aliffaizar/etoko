@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { formatRupiah } from '@/lib/format';
 import cart from '@/routes/shop/cart';
 import { index as catalogIndex } from '@/routes/shop/catalog';
+import checkout from '@/routes/shop/checkout';
 
 type CartVariant = {
     id: number;
@@ -234,15 +235,11 @@ function CartSummary({ cart: cartData }: { cart: CartData }) {
                 <span>{formatRupiah(cartData.subtotal)}</span>
             </div>
 
-            <Button
-                className="mt-4 w-full"
-                disabled
-                title="Checkout hadir setelah P1-E7"
-            >
-                Lanjut ke Checkout
+            <Button className="mt-4 w-full" asChild>
+                <Link href={checkout.index().url}>Lanjut ke Checkout</Link>
             </Button>
             <p className="mt-2 text-center text-xs text-muted-foreground">
-                Checkout tersedia di tahap berikutnya.
+                Ongkos kirim dihitung di halaman checkout.
             </p>
         </div>
     );

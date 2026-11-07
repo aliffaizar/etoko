@@ -1,0 +1,351 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Actions\Order\PlaceOrder;
+use App\Actions\Order\TransitionOrderStatus;
+use App\Enums\FulfillmentType;
+use App\Enums\OrderStatus;
+use App\Enums\UserRole;
+use App\Models\Address;
+use App\Models\Branch;
+use App\Models\Cart;
+use App\Models\Order;
+use App\Models\ProductVariant;
+use App\Models\Stock;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Example orders for local development (P1-E8-T1).
+ *
+ * Built through `PlaceOrder` and `TransitionOrderStatus` — the same two actions
+ * the storefront and the panel use — so what the seeder produces can never
+ * drift from what the application produces. That matters more here than
+ * anywhere: an order's stock holds, its ledger rows and its timeline all come
+ * from those actions, and a seeder that wrote `orders` directly would leave
+ * behind orders holding no stock, with no history, in states the state machine
+ * cannot reach. `OrderDemoSeederTest` locks that invariant.
+ *
+ * The set of orders is chosen so every screen has something to show:
+ *
+ * - one awaiting payment, **holding stock** — so `/branch/stocks` shows a
+ *   reserved figure and the order detail screen shows a live hold;
+ *   its `expires_at` is pushed well out so the expiry sweep does not
+ *   immediately cancel the demo data;
+ * - one paid and being processed, with its stock already off the shelf;
+ * - one completed, for the history and the customer's lifetime total;
+ * - one cancelled, with its hold released.
+ *
+ * Re-running it is safe: a branch that already has orders is skipped rather
+ * than given more. Never run it against a production database.
+ */
+class OrderDemoSeeder extends Seeder
+{
+    /** Units per line, small enough to leave plenty on the shelf. */
+    private const QUANTITY = 2;
+
+    /** Lines per order, so the detail screens are not single-row. */
+    private const LINES_PER_ORDER = 2;
+
+    /**
+     * How the demo orders are left, in the order they are created.
+     *
+     * Each is reached by walking the real state machine from
+     * `pending_payment`, which is why the paths are written out rather than
+     * assigned: `completed` is four moves away, and every one of them has
+     * consequences for stock.
+     *
+     * @var array<int, array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string}>
+     */
+    private const SCENARIOS = [
+        [
+            'status' => null,
+            'fulfillment' => FulfillmentType::Delivery,
+            'note' => 'Menunggu pembayaran — stoknya masih ditahan.',
+        ],
+        [
+            'status' => OrderStatus::Processing,
+            'fulfillment' => FulfillmentType::Delivery,
+            'note' => 'Sudah dibayar dan sedang disiapkan.',
+        ],
+        [
+            'status' => OrderStatus::Completed,
+            'fulfillment' => FulfillmentType::Pickup,
+            'note' => 'Selesai, diambil sendiri di cabang.',
+        ],
+        [
+            'status' => OrderStatus::Cancelled,
+            'fulfillment' => FulfillmentType::Delivery,
+            'note' => 'Dibatalkan pelanggan sebelum dibayar.',
+        ],
+    ];
+
+    public function run(PlaceOrder $placeOrder, TransitionOrderStatus $transition): void
+    {
+        $customers = $this->customers();
+
+        if ($customers->isEmpty()) {
+            $this->command?->warn('OrderDemoSeeder: belum ada akun pelanggan. Jalankan DemoDataSeeder lebih dahulu.');
+
+            return;
+        }
+
+        foreach (Branch::query()->active()->orderBy('id')->get() as $branch) {
+            if (Order::acrossBranches()->where('branch_id', $branch->getKey())->exists()) {
+                continue;
+            }
+
+            $this->seedBranch($branch, $customers, $placeOrder, $transition);
+        }
+
+        self::extendDemoHolds();
+    }
+
+    /**
+     * @param  Collection<int, User>  $customers
+     */
+    private function seedBranch(
+        Branch $branch,
+        Collection $customers,
+        PlaceOrder $placeOrder,
+        TransitionOrderStatus $transition,
+    ): void {
+        $variants = $this->sellableVariantsAt($branch);
+
+        if (count($variants) < self::LINES_PER_ORDER) {
+            $this->command?->warn(
+                "OrderDemoSeeder: cabang {$branch->name} belum punya stok yang cukup. Jalankan InventoryDemoSeeder lebih dahulu.",
+            );
+
+            return;
+        }
+
+        foreach (self::SCENARIOS as $index => $scenario) {
+            $customer = $customers[$index % $customers->count()];
+            $lines = array_slice($variants, $index % 2, self::LINES_PER_ORDER);
+
+            if (count($lines) < self::LINES_PER_ORDER) {
+                $lines = array_slice($variants, 0, self::LINES_PER_ORDER);
+            }
+
+            $order = $this->place($placeOrder, $branch, $customer, $lines, $scenario);
+
+            if ($order === null) {
+                continue;
+            }
+
+            $this->walkTo($transition, $order, $scenario['status'], $scenario['note']);
+        }
+    }
+
+    /**
+     * Fill a cart and check it out as the customer would.
+     *
+     * Returns null when the branch turned out not to be able to cover it —
+     * better a seeder with fewer example orders than a seeder that dies
+     * halfway and leaves the database partly filled.
+     *
+     * @param  array<int, ProductVariant>  $lines
+     * @param  array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string}  $scenario
+     */
+    private function place(
+        PlaceOrder $placeOrder,
+        Branch $branch,
+        User $customer,
+        array $lines,
+        array $scenario,
+    ): ?Order {
+        $fulfillment = $this->supportedFulfillment($branch, $scenario['fulfillment']);
+        $address = $this->addressOf($customer, $fulfillment);
+
+        if ($fulfillment === null || ($fulfillment->requiresShipping() && $address === null)) {
+            return null;
+        }
+
+        $cart = $this->filledCart($customer, $branch, $lines);
+
+        try {
+            return $placeOrder->handle($cart, $branch, $customer, [
+                'fulfillment_type' => $fulfillment,
+                'address_id' => $address?->getKey(),
+                'customer_note' => $scenario['note'],
+            ]);
+        } catch (\RuntimeException $refused) {
+            $this->command?->warn("OrderDemoSeeder: {$refused->getMessage()}");
+            $cart->items()->delete();
+
+            return null;
+        }
+    }
+
+    /**
+     * Walk the order to the status the scenario wants, one legal move at a
+     * time.
+     *
+     * Each step is a real transition, so the stock, the timestamps and the
+     * timeline all end up where they would in production.
+     */
+    private function walkTo(
+        TransitionOrderStatus $transition,
+        Order $order,
+        ?OrderStatus $target,
+        string $note,
+    ): void {
+        if ($target === null) {
+            return;
+        }
+
+        $path = match ($target) {
+            OrderStatus::Cancelled => [OrderStatus::Cancelled],
+            OrderStatus::Processing => [OrderStatus::Paid, OrderStatus::Processing],
+            OrderStatus::Completed => $order->fulfillment_type === FulfillmentType::Pickup
+                ? [OrderStatus::Paid, OrderStatus::Processing, OrderStatus::ReadyForPickup, OrderStatus::Completed]
+                : [OrderStatus::Paid, OrderStatus::Processing, OrderStatus::Shipped, OrderStatus::Delivered, OrderStatus::Completed],
+            default => [$target],
+        };
+
+        $actor = $this->branchStaffOf($order->branch_id);
+
+        foreach ($path as $step) {
+            $order = $transition->handle($order, $step, $actor, $note);
+        }
+    }
+
+    /**
+     * A cart with the given variants in it, priced the way the storefront
+     * prices them: the catalogue price, with no branch (ADR-031).
+     *
+     * @param  array<int, ProductVariant>  $lines
+     */
+    private function filledCart(User $customer, Branch $branch, array $lines): Cart
+    {
+        $cart = Cart::firstOrCreate(
+            ['user_id' => $customer->getKey()],
+            ['session_token' => null, 'expires_at' => null],
+        );
+
+        $cart->update(['branch_id' => $branch->getKey()]);
+        $cart->items()->delete();
+
+        foreach ($lines as $variant) {
+            $cart->items()->create([
+                'product_variant_id' => $variant->getKey(),
+                'quantity' => self::QUANTITY,
+                'unit_price_snapshot' => $variant->effectivePrice(),
+            ]);
+        }
+
+        return $cart->fresh(['items']);
+    }
+
+    /**
+     * Variants the branch can actually sell right now, most-stocked first.
+     *
+     * Read through `stocks` rather than through the catalogue, because what
+     * matters here is that the demo order can really be placed — an order for
+     * something the branch does not hold would be refused, which is correct
+     * behaviour and a useless demo.
+     *
+     * @return array<int, ProductVariant>
+     */
+    private function sellableVariantsAt(Branch $branch): array
+    {
+        $variantIds = Stock::acrossBranches()
+            ->where('branch_id', $branch->getKey())
+            ->whereColumn('quantity', '>', 'reserved_quantity')
+            ->orderByDesc('quantity')
+            ->limit(8)
+            ->pluck('product_variant_id');
+
+        return ProductVariant::query()
+            ->with('product')
+            ->whereKey($variantIds)
+            ->whereHas('product', fn ($product) => $product->published())
+            ->orderBy('id')
+            ->get()
+            ->all();
+    }
+
+    /**
+     * The fulfilment the scenario asked for, or whatever the branch does
+     * support instead.
+     */
+    private function supportedFulfillment(Branch $branch, FulfillmentType $preferred): ?FulfillmentType
+    {
+        $supports = fn (FulfillmentType $type): bool => match ($type) {
+            FulfillmentType::Delivery => $branch->supports_delivery,
+            FulfillmentType::Pickup => $branch->supports_pickup,
+        };
+
+        if ($supports($preferred)) {
+            return $preferred;
+        }
+
+        foreach (FulfillmentType::cases() as $type) {
+            if ($supports($type)) {
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * An address for the customer, created if they have none, so a delivery
+     * order has somewhere to go.
+     */
+    private function addressOf(User $customer, ?FulfillmentType $fulfillment): ?Address
+    {
+        if ($fulfillment === null || ! $fulfillment->requiresShipping()) {
+            return null;
+        }
+
+        return $customer->addresses()->orderByDesc('is_default')->first()
+            ?? Address::factory()->for($customer)->create(['is_default' => true]);
+    }
+
+    /**
+     * @return Collection<int, User>
+     */
+    private function customers(): Collection
+    {
+        return User::query()
+            ->role(UserRole::Customer->value)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->limit(4)
+            ->get();
+    }
+
+    /**
+     * Somebody from the branch to put on the status changes, so the timeline
+     * does not read as though nobody was involved.
+     */
+    private function branchStaffOf(int $branchId): ?User
+    {
+        return User::query()
+            ->where('branch_id', $branchId)
+            ->whereHas('roles', fn ($roles) => $roles->where('name', UserRole::AdminCabang->value))
+            ->first();
+    }
+
+    /**
+     * Push the unpaid demo order's hold well into the future.
+     *
+     * Without this, `ExpireStockReservations` would cancel the one order that
+     * exists to show a live hold within fifteen minutes of seeding — and the
+     * screen it exists for would be empty by the time anyone looked.
+     *
+     * Written with the query builder on purpose: this is a seeder convenience,
+     * not a business rule, and it moves no figure.
+     */
+    public static function extendDemoHolds(): void
+    {
+        DB::table('stock_reservations')
+            ->where('status', 'active')
+            ->update(['expires_at' => now()->addDays(30)]);
+    }
+}

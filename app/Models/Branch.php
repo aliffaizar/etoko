@@ -108,6 +108,16 @@ class Branch extends Model
     }
 
     /**
+     * Orders this branch is the processing branch for (P1-E7-T1, BR-5).
+     *
+     * @return HasMany<Order, $this>
+     */
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    /**
      * @return HasMany<BranchOperatingHour, $this>
      */
     public function operatingHours(): HasMany
@@ -184,6 +194,12 @@ class Branch extends Model
      * The storefront needs its fallback branch to exist (ADR-017), and a branch
      * that still has staff would leave their accounts pointing at a branch
      * nobody can open.
+     *
+     * Orders are the hard stop (P1-E7-T1): BR-5 says every transaction names
+     * the branch that fulfilled it, so deleting a branch that has sold
+     * anything would erase the answer. `orders.branch_id` is
+     * `restrictOnDelete` for the same reason — this is the readable half of
+     * that constraint.
      */
     public function deletionBlockedReason(): ?string
     {
@@ -195,6 +211,12 @@ class Branch extends Model
 
         if ($staffCount > 0) {
             return "Cabang ini masih memiliki {$staffCount} akun staf. Pindahkan atau hapus akun tersebut terlebih dahulu.";
+        }
+
+        $orderCount = Order::acrossBranches()->withTrashed()->where('branch_id', $this->getKey())->count();
+
+        if ($orderCount > 0) {
+            return "Cabang ini memproses {$orderCount} pesanan. Riwayat pesanan harus tetap menyebut cabang pemrosesnya (BR-5), jadi cabang ini tidak dapat dihapus.";
         }
 
         return null;

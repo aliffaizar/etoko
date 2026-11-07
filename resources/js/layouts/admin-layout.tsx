@@ -8,6 +8,7 @@ import {
     PackagePlus,
     Palette,
     ShieldCheck,
+    ShoppingCart,
     Store,
     UserCheck,
     Users,
@@ -22,6 +23,7 @@ import { index as categoriesIndex } from '@/routes/admin/categories';
 import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as customersIndex } from '@/routes/admin/customers';
+import { index as ordersIndex } from '@/routes/admin/orders';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import stockEntries from '@/routes/branch/stock-entries';
@@ -112,8 +114,16 @@ const navGroups: PanelNavGroup[] = [
         ],
     },
     {
-        label: 'Pelanggan',
+        // Orders and the people who place them, together: the first question
+        // asked about a customer is what they have ordered (P1-E7-T8).
+        label: 'Penjualan',
         items: [
+            {
+                title: 'Pesanan',
+                href: ordersIndex(),
+                icon: ShoppingCart,
+                permission: 'orders.view',
+            },
             {
                 title: 'Daftar Pelanggan',
                 href: customersIndex(),

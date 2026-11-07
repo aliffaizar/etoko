@@ -1,5 +1,15 @@
 import { Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, LayoutGrid, Menu, Search, Store } from 'lucide-react';
+import {
+    ChevronDown,
+    Heart,
+    LayoutGrid,
+    MapPin,
+    Menu,
+    Package,
+    Search,
+    ShoppingCart,
+    Store,
+} from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import AppLogo from '@/components/app-logo';
 import { BranchPicker } from '@/components/shop/branch-picker';
@@ -25,6 +35,8 @@ import { useInitials } from '@/hooks/use-initials';
 import { home, login, register } from '@/routes';
 import { dashboard as adminDashboard } from '@/routes/admin';
 import { dashboard as branchDashboard } from '@/routes/branch';
+import account from '@/routes/shop/account';
+import cart from '@/routes/shop/cart';
 import catalog from '@/routes/shop/catalog';
 import type { ShopContext } from '@/types';
 
@@ -33,9 +45,10 @@ import type { ShopContext } from '@/types';
  *
  * Three things have to be reachable from every page: the branch the shopper is
  * buying from — because it decides every price and stock figure on screen
- * (BR-8) — the search box, and the category menu. The cart and wishlist join
- * them in `P1-E6`, which is why the right-hand side is a row rather than a
- * single button.
+ * (BR-8) — the search box, and the category menu. The cart and the wishlist
+ * sit beside them, which is why the right-hand side is a row rather than a
+ * single button; the order history lives in the account menu, where somebody
+ * looking for "my orders" expects it.
  *
  * The staff shortcut is deliberate: an admin who lands on the shop should be
  * one click from their panel instead of hunting for a URL.
@@ -61,6 +74,7 @@ export function ShopHeader() {
 
                 <div className="ml-auto flex items-center gap-1 md:ml-0">
                     <BranchPicker className="hidden sm:flex" />
+                    <ShopperActions cartCount={shop?.cart_count ?? 0} />
                     <AccountMenu />
                 </div>
             </div>
@@ -248,6 +262,59 @@ function MobileMenu({ categories }: { categories: ShopContext['categories'] }) {
     );
 }
 
+/**
+ * The shopper's own things: wishlist and cart (P1-E6), reachable from every
+ * page.
+ *
+ * The badge counts **units**, the same figure every "N item" in the
+ * application prints — a badge reading "1" beside a cart summary reading
+ * "4 item" is a disagreement nobody can resolve by looking.
+ *
+ * The wishlist needs an account, so it is only offered to one; the cart works
+ * for guests and is always there.
+ */
+function ShopperActions({ cartCount }: { cartCount: number }) {
+    const { auth } = useAuthorization();
+
+    return (
+        <div className="flex items-center gap-1">
+            {auth?.user && !auth.isStaff && (
+                <Button variant="ghost" size="icon" asChild>
+                    <Link
+                        href={account.wishlist.index()}
+                        aria-label="Wishlist"
+                        title="Wishlist"
+                    >
+                        <Heart aria-hidden />
+                    </Link>
+                </Button>
+            )}
+
+            <Button variant="ghost" size="icon" className="relative" asChild>
+                <Link
+                    href={cart.index()}
+                    aria-label={
+                        cartCount === 0
+                            ? 'Keranjang, kosong'
+                            : `Keranjang, ${cartCount} item`
+                    }
+                    title="Keranjang"
+                >
+                    <ShoppingCart aria-hidden />
+                    {cartCount > 0 && (
+                        <span
+                            aria-hidden
+                            className="absolute -end-0.5 -top-0.5 flex size-4.5 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-medium tabular-nums text-primary-foreground"
+                        >
+                            {cartCount > 9 ? '9+' : cartCount}
+                        </span>
+                    )}
+                </Link>
+            </Button>
+        </div>
+    );
+}
+
 function AccountMenu() {
     const { auth } = useAuthorization();
     const getInitials = useInitials();
@@ -307,7 +374,29 @@ function AccountMenu() {
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                    <UserMenuContent user={auth.user} />
+                    <UserMenuContent
+                        user={auth.user}
+                        // A shopper's first question about their account is
+                        // "where is my order?", so the history sits above
+                        // settings. Staff accounts have no shop history to
+                        // show (P1-E7-T6).
+                        extraItems={
+                            auth.isStaff
+                                ? undefined
+                                : [
+                                      {
+                                          label: 'Pesanan Saya',
+                                          href: account.orders.index().url,
+                                          icon: Package,
+                                      },
+                                      {
+                                          label: 'Alamat Saya',
+                                          href: account.addresses.index().url,
+                                          icon: MapPin,
+                                      },
+                                  ]
+                        }
+                    />
                 </DropdownMenuContent>
             </DropdownMenu>
         </>

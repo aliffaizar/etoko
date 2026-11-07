@@ -75,7 +75,7 @@ class CartController extends Controller
 
         $variant = ProductVariant::withoutGlobalScopes()
             ->with('product:id,name,base_price')
-            ->findOrFail($request->validated('product_variant_id'));
+            ->findOrFail((int) $request->validated('product_variant_id'));
 
         $success = $this->cartService->addItem(
             $cart,

@@ -52,6 +52,32 @@ describe('index', function () {
     });
 });
 
+/*
+ * The header badge (P1-E7-T4).
+ *
+ * It counts units, not lines, because every "N item" the application prints is
+ * a sum of quantities. A badge reading "1" beside a summary reading "4 item"
+ * on the same screen is a disagreement nobody can resolve by looking.
+ */
+it('counts units rather than lines for the header badge', function () {
+    $customer = User::factory()->customer()->create();
+    $cart = Cart::factory()->forUser($customer)->create();
+    $first = Product::factory()->withDefaultVariant()->create()->variants->first();
+    $second = Product::factory()->withDefaultVariant()->create()->variants->first();
+
+    CartItem::factory()->forCart($cart)->forVariant($first)->create(['quantity' => 3]);
+    CartItem::factory()->forCart($cart)->forVariant($second)->create(['quantity' => 1]);
+
+    $this->actingAs($customer)
+        ->get(route('shop.cart.index'))
+        ->assertInertia(fn ($page) => $page->where('shop.cart_count', 4));
+});
+
+it('shows no badge count for a visitor with no cart', function () {
+    $this->get(route('shop.cart.index'))
+        ->assertInertia(fn ($page) => $page->where('shop.cart_count', 0));
+});
+
 // ── Store ──────────────────────────────────────────────────────────────────────
 
 describe('store', function () {

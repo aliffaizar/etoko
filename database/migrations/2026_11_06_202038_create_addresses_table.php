@@ -14,9 +14,9 @@ return new class extends Migration
             $table->string('label');
             $table->string('recipient_name');
             $table->string('phone', 20);
-            $table->foreignId('province_id')->nullable()->nullOnDelete()->constrained('regions');
-            $table->foreignId('city_id')->nullable()->nullOnDelete()->constrained('regions');
-            $table->foreignId('district_id')->nullable()->nullOnDelete()->constrained('regions');
+            $table->foreignId('province_id')->nullable()->constrained('regions')->nullOnDelete();
+            $table->foreignId('city_id')->nullable()->constrained('regions')->nullOnDelete();
+            $table->foreignId('district_id')->nullable()->constrained('regions')->nullOnDelete();
             $table->string('province_name');
             $table->string('city_name');
             $table->string('district_name');

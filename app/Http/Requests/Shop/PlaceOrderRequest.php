@@ -1,0 +1,86 @@
+<?php
+
+namespace App\Http\Requests\Shop;
+
+use App\Enums\FulfillmentType;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/**
+ * What the checkout form sends (P1-E7-T4, T5).
+ *
+ * The shape only — whether the branch takes pickups, whether the address is
+ * this customer's, whether the stock is still there: all of that is
+ * `PlaceOrder`'s, because it has to be re-checked inside the transaction
+ * anyway and a rule here would be the second copy that goes stale.
+ *
+ * `address_id` is required for a delivery and refused for a pickup. Accepting
+ * it for a pickup and ignoring it would let a customer believe they had chosen
+ * where it was going.
+ */
+class PlaceOrderRequest extends FormRequest
+{
+    /**
+     * Authorisation is the route's `auth` middleware: an order belongs to an
+     * account, and guest checkout is not offered yet.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, array<int, mixed>>
+     */
+    public function rules(): array
+    {
+        return [
+            'fulfillment_type' => ['required', Rule::enum(FulfillmentType::class)],
+            'address_id' => [
+                Rule::requiredIf($this->input('fulfillment_type') === FulfillmentType::Delivery->value),
+                Rule::prohibitedIf($this->input('fulfillment_type') === FulfillmentType::Pickup->value),
+                'nullable',
+                'integer',
+                'exists:addresses,id',
+            ],
+            'customer_note' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'fulfillment_type' => 'cara pemenuhan',
+            'address_id' => 'alamat pengiriman',
+            'customer_note' => 'catatan',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'address_id.required' => 'Pilih alamat pengiriman terlebih dahulu.',
+            'address_id.prohibited' => 'Pesanan ambil sendiri tidak memerlukan alamat pengiriman.',
+        ];
+    }
+
+    /**
+     * @return array{fulfillment_type: FulfillmentType, address_id: int|null, customer_note: string|null}
+     */
+    public function toCheckoutData(): array
+    {
+        $addressId = $this->validated('address_id');
+
+        return [
+            'fulfillment_type' => FulfillmentType::from((string) $this->validated('fulfillment_type')),
+            'address_id' => $addressId === null ? null : (int) $addressId,
+            'customer_note' => $this->validated('customer_note'),
+        ];
+    }
+}

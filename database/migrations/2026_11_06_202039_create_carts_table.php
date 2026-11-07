@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('carts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->nullable()->unique()->nullOnDelete()->constrained();
+            $table->foreignId('user_id')->nullable()->unique()->constrained()->nullOnDelete();
             $table->string('session_token')->nullable()->index();
-            $table->foreignId('branch_id')->nullable()->nullOnDelete()->constrained();
+            $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
             $table->string('fulfillment_type')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();

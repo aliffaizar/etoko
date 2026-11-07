@@ -98,6 +98,20 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
+     * Orders this customer has placed (P1-E7-T1).
+     *
+     * `Order` is branch-scoped (BR-3), so a branch-bound actor reading this
+     * sees only the orders their own branch fulfilled — which is the intent on
+     * the branch panel's customer screens.
+     *
+     * @return HasMany<Order, $this>
+     */
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    /**
      * The user's single application role, or null when none is assigned.
      */
     public function appRole(): ?UserRole

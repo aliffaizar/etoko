@@ -1,5 +1,5 @@
 import { Link, router } from '@inertiajs/react';
-import { LogOut, Settings } from 'lucide-react';
+import { LogOut, Settings, type LucideIcon } from 'lucide-react';
 import {
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -12,11 +12,25 @@ import { logout } from '@/routes';
 import { edit } from '@/routes/profile';
 import type { User } from '@/types';
 
-type Props = {
-    user: User;
+/** One extra entry a host can put above "Pengaturan". */
+export type UserMenuExtraItem = {
+    label: string;
+    href: string;
+    icon: LucideIcon;
 };
 
-export function UserMenuContent({ user }: Props) {
+type Props = {
+    user: User;
+    /**
+     * Entries the host adds for this user, shown above "Pengaturan".
+     *
+     * The storefront puts the shopper's orders and addresses here; the panels
+     * pass nothing, because their navigation is the sidebar.
+     */
+    extraItems?: UserMenuExtraItem[];
+};
+
+export function UserMenuContent({ user, extraItems }: Props) {
     const cleanup = useMobileNavigation();
 
     const handleLogout = () => {
@@ -33,6 +47,18 @@ export function UserMenuContent({ user }: Props) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+                {extraItems?.map((item) => (
+                    <DropdownMenuItem key={item.href} asChild>
+                        <Link
+                            className="block w-full cursor-pointer"
+                            href={item.href}
+                            onClick={cleanup}
+                        >
+                            <item.icon className="mr-2" />
+                            {item.label}
+                        </Link>
+                    </DropdownMenuItem>
+                ))}
                 <DropdownMenuItem asChild>
                     <Link
                         className="block w-full cursor-pointer"

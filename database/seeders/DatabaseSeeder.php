@@ -12,12 +12,13 @@ class DatabaseSeeder extends Seeder
     /**
      * Seed the application's database.
      *
-     * RolePermissionSeeder is reference data every environment needs;
-     * DemoDataSeeder, CatalogDemoSeeder and InventoryDemoSeeder are sample
-     * content and are skipped in production.
+     * RolePermissionSeeder is reference data every environment needs; the four
+     * demo seeders are sample content and are skipped in production.
      *
-     * The order matters: inventory is received against variants, so the
-     * catalogue has to exist first.
+     * The order matters and is a chain of dependencies, not a preference:
+     * inventory is received against variants, so the catalogue has to exist
+     * first; and an order can only be placed for stock a branch actually
+     * holds, so inventory has to exist before orders.
      */
     public function run(): void
     {
@@ -27,6 +28,7 @@ class DatabaseSeeder extends Seeder
             $this->call(DemoDataSeeder::class);
             $this->call(CatalogDemoSeeder::class);
             $this->call(InventoryDemoSeeder::class);
+            $this->call(OrderDemoSeeder::class);
         }
     }
 }

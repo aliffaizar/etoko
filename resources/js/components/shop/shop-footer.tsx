@@ -57,9 +57,10 @@ export function ShopFooter() {
 
                 {branch && (
                     <div className="flex flex-col gap-2">
-                        <h2 className="text-sm font-semibold">
-                            Cabang {branch.name}
-                        </h2>
+                        {/* The branch name already carries its own word for
+                            "branch" ("Cabang Jakarta Pusat"), so prefixing one
+                            here reads as "Cabang Cabang Jakarta Pusat". */}
+                        <h2 className="text-sm font-semibold">{branch.name}</h2>
                         <p className="flex items-start gap-2 text-sm text-muted-foreground">
                             <MapPin
                                 className="mt-0.5 size-4 shrink-0"

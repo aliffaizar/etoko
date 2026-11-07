@@ -50,6 +50,8 @@ export type ShopContext = {
     /** False while the visitor is being shown the main branch by default. */
     has_chosen_branch: boolean;
     categories: ShopCategoryMenuItem[];
+    /** Lines in the visitor's cart, for the header badge. */
+    cart_count: number;
 };
 
 /**

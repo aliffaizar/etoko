@@ -6,6 +6,7 @@ import {
     PackagePlus,
     LayoutGrid,
     Package,
+    ShoppingCart,
     Store,
     Tags,
     Users,
@@ -24,6 +25,7 @@ import { edit as branchEdit } from '@/routes/admin/branches';
 import branchPrices from '@/routes/admin/branches/prices';
 import branchProducts from '@/routes/admin/branches/products';
 import { index as categoriesIndex } from '@/routes/admin/categories';
+import { index as ordersIndex } from '@/routes/admin/orders';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
@@ -55,6 +57,22 @@ function useBranchNavGroups(): PanelNavGroup[] {
             ],
         },
     ];
+
+    // The branch's order queue, on the same screens central uses (ADR-016).
+    // `Order` carries the branch global scope, so the listing arrives already
+    // narrowed to this branch and the branch filter is simply of no use here
+    // (P1-E7-T8).
+    groups.push({
+        label: 'Penjualan',
+        items: [
+            {
+                title: 'Pesanan',
+                href: ordersIndex(),
+                icon: ShoppingCart,
+                permission: 'orders.view',
+            },
+        ],
+    });
 
     // Stock is the branch's own business, unlike the catalogue: a branch admin
     // and their warehouse staff correct their own figures (P1-E4-T3). A

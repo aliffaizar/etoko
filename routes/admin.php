@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\ProductAttributeController;
 use App\Http\Controllers\Admin\ProductAttributeValueController;
 use App\Http\Controllers\Admin\ProductController;
@@ -328,6 +329,42 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::delete('{category}', [CategoryController::class, 'destroy'])
                 ->middleware('can:categories.delete')
                 ->name('destroy');
+        });
+
+        /*
+         * The order queue (P1-E7-T8, T9, T10).
+         *
+         * One set of screens for central and branch staff: `Order` carries the
+         * branch global scope, so a branch account's listing is already its
+         * own and `OrderPolicy` is the second line behind the 404 that
+         * route-model binding gives for another branch's order (ADR-027).
+         *
+         * Each write is its own route with its own permission, because they
+         * are three different decisions: moving an order along, calling it
+         * off, and handing it to another branch. `orders.assign_branch` is
+         * additionally central-only inside the policy, so granting it on the
+         * Role screen does not open it to a branch admin.
+         */
+        Route::prefix('orders')->name('orders.')->group(function () {
+            Route::get('/', [OrderController::class, 'index'])
+                ->middleware('can:orders.view')
+                ->name('index');
+
+            Route::get('{order}', [OrderController::class, 'show'])
+                ->middleware('can:orders.view')
+                ->name('show');
+
+            Route::put('{order}/status', [OrderController::class, 'updateStatus'])
+                ->middleware('can:orders.update_status')
+                ->name('status.update');
+
+            Route::post('{order}/cancel', [OrderController::class, 'cancel'])
+                ->middleware('can:orders.cancel')
+                ->name('cancel');
+
+            Route::put('{order}/branch', [OrderController::class, 'assignBranch'])
+                ->middleware('can:orders.assign_branch')
+                ->name('branch.update');
         });
 
         Route::prefix('customers')->name('customers.')->group(function () {

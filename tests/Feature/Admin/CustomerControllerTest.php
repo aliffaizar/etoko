@@ -2,6 +2,7 @@
 
 use App\Models\Address;
 use App\Models\Branch;
+use App\Models\Order;
 use App\Models\User;
 
 /*
@@ -116,5 +117,49 @@ describe('show', function () {
         $this->actingAs($viewer)
             ->get(route('admin.customers.show', $target))
             ->assertForbidden();
+    });
+
+    /*
+     * The order figures, added in P1-E7-T8.
+     *
+     * Only settled money counts as "spent": an unpaid order is a hope, and
+     * counting it would overstate every customer.
+     */
+    it('counts the orders and totals only the money that actually arrived', function () {
+        $actor = User::factory()->superAdmin()->create();
+        $customer = User::factory()->customer()->create();
+        $branch = Branch::factory()->create();
+
+        Order::factory()->forBranch($branch)->forCustomer($customer)
+            ->paid()->create(['grand_total' => 250_000]);
+        Order::factory()->forBranch($branch)->forCustomer($customer)
+            ->create(['grand_total' => 900_000]);
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.show', $customer))
+            ->assertInertia(fn ($page) => $page
+                ->where('customer.order_count', 2)
+                ->where('customer.total_spend', 250_000)
+                ->has('orders', 2));
+    });
+
+    it('shows a branch admin only the orders their own branch filled (BR-3)', function () {
+        $mine = Branch::factory()->create();
+        $theirs = Branch::factory()->create();
+        $actor = User::factory()->adminCabang($mine)->create();
+        $actor->givePermissionTo('customers.view');
+        $customer = User::factory()->customer()->create();
+
+        Order::factory()->forBranch($mine)->forCustomer($customer)
+            ->paid()->create(['grand_total' => 100_000]);
+        Order::factory()->forBranch($theirs)->forCustomer($customer)
+            ->paid()->create(['grand_total' => 500_000]);
+
+        $this->actingAs($actor)
+            ->get(route('admin.customers.show', $customer))
+            ->assertInertia(fn ($page) => $page
+                ->where('customer.order_count', 1)
+                ->where('customer.total_spend', 100_000)
+                ->has('orders', 1));
     });
 });

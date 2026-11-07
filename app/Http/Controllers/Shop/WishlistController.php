@@ -37,9 +37,15 @@ class WishlistController extends Controller
 
         $offeredProductIds = StorefrontCatalogQuery::offered()->pluck('id');
 
+        // A product unpublished since it was saved is dropped by narrowing the
+        // **wishlist rows**, not by narrowing the eager load and filtering the
+        // nulls afterwards: a constrained eager load leaves `$w->product` null
+        // on a row whose `product_id` is NOT NULL, which every later line then
+        // has to remember. The row itself is never deleted — the product may
+        // come back.
         $wishlisted = $user->wishlists()
+            ->whereIn('product_id', $offeredProductIds)
             ->with(['product' => fn ($q) => $q
-                ->whereIn('products.id', $offeredProductIds)
                 ->with([
                     'images' => fn ($q) => $q->where('is_primary', true)->limit(1),
                     'variants' => fn ($q) => $q->active()->orderByDesc('is_default')
@@ -50,18 +56,16 @@ class WishlistController extends Controller
             ])
             ->get();
 
-        // Some wishlist products may have been unpublished since being saved —
-        // the join via offered() excludes them from the eager load, so the
-        // relation will be null for those rows. Filter them out silently.
-        $valid = $wishlisted->filter(fn (Wishlist $w): bool => $w->product instanceof Product);
-
         $allVariants = new Collection(
-            $valid->flatMap(fn (Wishlist $w) => $w->product->variants)->all()
+            $wishlisted->flatMap(fn (Wishlist $w) => $w->product->variants)->all()
         );
         $resolved = $this->prices->forMany($allVariants, null);
 
         return Inertia::render('shop/wishlist', [
-            'items' => $valid->map(fn (Wishlist $w) => $this->wishlistItemProps($w, $resolved))->values()->all(),
+            'items' => $wishlisted
+                ->map(fn (Wishlist $w) => $this->wishlistItemProps($w, $resolved))
+                ->values()
+                ->all(),
         ]);
     }
 

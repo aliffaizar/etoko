@@ -3,6 +3,7 @@
 use App\Enums\BranchStatus;
 use App\Enums\UserRole;
 use App\Models\Branch;
+use App\Models\Order;
 use App\Models\User;
 use App\Models\Warehouse;
 
@@ -427,6 +428,33 @@ it('refuses to delete a branch that still has staff', function () {
         ->assertForbidden();
 
     expect($branch->refresh()->trashed())->toBeFalse();
+});
+
+/*
+ * The debt from P1-E2, paid in P1-E7-T1.
+ *
+ * BR-5 says every transaction names the branch that fulfilled it, so a branch
+ * that has sold anything cannot be deleted — the history would lose the
+ * answer. `orders.branch_id` is `restrictOnDelete` for the same reason; this is
+ * the readable half of that constraint.
+ */
+it('refuses to delete a branch that has processed orders (BR-5)', function () {
+    $branch = Branch::factory()->create();
+    Order::factory()->forBranch($branch)->create();
+
+    $this->actingAs(User::factory()->adminPusat()->create())
+        ->delete(route('admin.branches.destroy', $branch))
+        ->assertForbidden();
+
+    expect($branch->refresh()->trashed())->toBeFalse();
+});
+
+it('still refuses once those orders are only history', function () {
+    $branch = Branch::factory()->create();
+    Order::factory()->forBranch($branch)->completed()->create();
+
+    expect($branch->deletionBlockedReason())->toContain('pesanan')
+        ->and($branch->isDeletable())->toBeFalse();
 });
 
 it('forbids a branch admin from deleting their own branch', function () {

@@ -1,13 +1,12 @@
 import { Head, Link } from '@inertiajs/react';
 import { Eye, UserRound } from 'lucide-react';
-import AdminLayout from '@/layouts/admin-layout';
 import Heading from '@/components/heading';
 import { DataTable } from '@/components/panel/data-table';
 import { FilterBar } from '@/components/panel/filter-bar';
 import { StatusBadge } from '@/components/panel/status-badge';
+import { Button } from '@/components/ui/button';
 import { useTableQuery } from '@/hooks/use-table-query';
 import { formatDateShort, formatRelative } from '@/lib/format';
-import { index as customersIndex } from '@/routes/admin/customers';
 import { show as customerShow } from '@/routes/admin/customers';
 import type { DataTableColumn, FilterField, Paginated } from '@/types';
 
@@ -17,111 +16,175 @@ type CustomerItem = {
     email: string;
     phone: string | null;
     is_active: boolean;
+    order_count: number;
     last_login_at: string | null;
     created_at: string | null;
 };
 
-type CustomerFilters = {
-    search: string;
-    status: string;
-};
-
 type CustomersIndexProps = {
     customers: Paginated<CustomerItem>;
-    filters: CustomerFilters;
+    options: { statuses: { value: string; label: string }[] };
 };
 
-const STATUS_OPTIONS = [
-    { value: 'active', label: 'Aktif' },
-    { value: 'inactive', label: 'Nonaktif' },
-];
+export default function CustomersIndex({
+    customers,
+    options,
+}: CustomersIndexProps) {
+    const table = useTableQuery({
+        only: ['customers', 'filters'],
+        defaultSort: 'created_at',
+        defaultDirection: 'desc',
+    });
 
-const FILTER_FIELDS: FilterField[] = [
-    { key: 'search', type: 'search', placeholder: 'Cari nama, email, telepon…' },
-    { key: 'status', type: 'select', label: 'Status', options: STATUS_OPTIONS },
-];
-
-export default function CustomersIndex({ customers, filters }: CustomersIndexProps) {
-    const { query, setFilter } = useTableQuery(filters);
+    const filterFields: FilterField[] = [
+        {
+            type: 'search',
+            key: 'search',
+            label: 'Cari pelanggan',
+            placeholder: 'Cari nama, email, atau telepon…',
+        },
+        {
+            type: 'select',
+            key: 'status',
+            label: 'Status',
+            options: options.statuses,
+            allLabel: 'Semua status',
+            className: 'sm:w-44',
+        },
+    ];
 
     const columns: DataTableColumn<CustomerItem>[] = [
         {
             key: 'name',
             header: 'Pelanggan',
-            render: (row) => (
-                <div className="flex flex-col">
-                    <span className="font-medium">{row.name}</span>
-                    <span className="text-xs text-muted-foreground">{row.email}</span>
+            sortKey: 'name',
+            cell: (customer) => (
+                <div className="min-w-0">
+                    <p className="truncate font-medium">{customer.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                        {customer.email}
+                    </p>
                 </div>
             ),
         },
         {
             key: 'phone',
             header: 'Telepon',
-            render: (row) => row.phone ?? <span className="text-muted-foreground">–</span>,
+            hideOnMobile: true,
+            cell: (customer) => (
+                <span className="text-sm">{customer.phone ?? '-'}</span>
+            ),
         },
         {
             key: 'is_active',
             header: 'Status',
-            render: (row) => (
+            cell: (customer) => (
                 <StatusBadge
-                    variant={row.is_active ? 'success' : 'danger'}
-                    label={row.is_active ? 'Aktif' : 'Nonaktif'}
+                    label={customer.is_active ? 'Aktif' : 'Nonaktif'}
+                    tone={customer.is_active ? 'success' : 'danger'}
                 />
+            ),
+        },
+        {
+            key: 'order_count',
+            header: 'Pesanan',
+            align: 'right',
+            cell: (customer) => (
+                <span className="text-sm tabular-nums">
+                    {customer.order_count}
+                </span>
             ),
         },
         {
             key: 'last_login_at',
             header: 'Login terakhir',
-            render: (row) =>
-                row.last_login_at ? (
-                    <span title={formatDateShort(row.last_login_at)}>{formatRelative(row.last_login_at)}</span>
+            hideOnMobile: true,
+            cell: (customer) =>
+                customer.last_login_at ? (
+                    <span
+                        className="text-sm"
+                        title={formatDateShort(customer.last_login_at)}
+                    >
+                        {formatRelative(customer.last_login_at)}
+                    </span>
                 ) : (
-                    <span className="text-muted-foreground">Belum pernah</span>
+                    <span className="text-sm text-muted-foreground">
+                        Belum pernah
+                    </span>
                 ),
         },
         {
             key: 'created_at',
             header: 'Bergabung',
-            render: (row) => (row.created_at ? formatDateShort(row.created_at) : '–'),
+            sortKey: 'created_at',
+            hideOnMobile: true,
+            cell: (customer) => (
+                <span className="text-sm">
+                    {formatDateShort(customer.created_at)}
+                </span>
+            ),
         },
         {
             key: 'actions',
-            header: '',
-            className: 'w-10',
-            render: (row) => (
-                <Link href={customerShow(row.id).url} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                    <Eye className="size-3.5" />
-                    Detail
-                </Link>
+            header: 'Aksi',
+            srOnlyHeader: true,
+            align: 'right',
+            cell: (customer) => (
+                <Button variant="ghost" size="sm" asChild>
+                    <Link href={customerShow(customer.id).url}>
+                        <Eye aria-hidden />
+                        Detail
+                    </Link>
+                </Button>
             ),
         },
     ];
 
     return (
-        <AdminLayout
-            breadcrumbs={[
-                { title: 'Dashboard', href: '/admin' },
-                { title: 'Pelanggan', href: customersIndex().url },
-            ]}
-        >
+        <>
             <Head title="Pelanggan" />
 
-            <div className="flex flex-col gap-6 p-4 md:p-6">
-                <div className="flex items-center gap-3">
-                    <UserRound className="size-6 shrink-0 text-muted-foreground" />
-                    <Heading title="Pelanggan" description="Daftar akun pelanggan yang terdaftar." />
-                </div>
+            <div className="flex h-full flex-1 flex-col gap-6 p-4">
+                <Heading
+                    title="Pelanggan"
+                    description="Daftar akun pelanggan beserta riwayat pesanannya."
+                />
 
-                <FilterBar fields={FILTER_FIELDS} values={query} onChange={setFilter} />
+                <FilterBar
+                    fields={filterFields}
+                    values={table.values}
+                    onChange={table.setFilters}
+                    onReset={table.reset}
+                    isFiltered={table.isFiltered}
+                />
 
                 <DataTable
                     columns={columns}
                     rows={customers.data}
+                    rowKey={(customer) => customer.id}
                     paginator={customers}
-                    emptyMessage="Belum ada pelanggan."
+                    rowLabel="pelanggan"
+                    sort={table.sort}
+                    onSortChange={table.toggleSort}
+                    goToPage={table.goToPage}
+                    pageUrl={table.pageUrl}
+                    isLoading={table.isLoading}
+                    empty={{
+                        icon: UserRound,
+                        title: table.isFiltered
+                            ? 'Tidak ada pelanggan yang cocok'
+                            : 'Belum ada pelanggan',
+                        description: table.isFiltered
+                            ? 'Ubah atau hapus filter untuk melihat pelanggan lain.'
+                            : 'Pelanggan muncul di sini setelah mendaftar di toko.',
+                        action: table.isFiltered ? (
+                            <Button variant="outline" onClick={table.reset}>
+                                Reset filter
+                            </Button>
+                        ) : undefined,
+                    }}
                 />
             </div>
-        </AdminLayout>
+        </>
     );
 }
