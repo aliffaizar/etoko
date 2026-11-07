@@ -30,17 +30,23 @@ class ProductFactory extends Factory
      * Prices are whole rupiah integers (ADR-008), rounded to the nearest
      * thousand so test expectations stay readable.
      *
+     * The slug is derived from the *final* `name` attribute rather than from the
+     * random name built here (BUG-08): a caller that overrides only `name` would
+     * otherwise get a row whose slug still carries an unrelated product name, and
+     * every search that looks at name **or** slug would pull that row in at
+     * random.
+     *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
-        $name = fake()->randomElement(self::NAMES).' '.fake()->unique()->bothify('??-###');
         $basePrice = fake()->numberBetween(15, 2500) * 1000;
 
         return [
             'category_id' => Category::factory(),
-            'name' => $name,
-            'slug' => Str::slug($name),
+            'name' => fake()->randomElement(self::NAMES).' '.fake()->unique()->bothify('??-###'),
+            'slug' => fn (array $attributes): string => Str::slug((string) $attributes['name'])
+                .'-'.fake()->unique()->numberBetween(1, 99999),
             'type' => ProductType::Simple,
             'short_description' => fake()->sentence(),
             'description' => '<p>'.fake()->paragraph().'</p>',

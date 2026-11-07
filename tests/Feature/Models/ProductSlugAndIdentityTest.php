@@ -2,8 +2,11 @@
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductAttribute;
 use App\Models\ProductVariant;
+use Database\Factories\ProductFactory;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Str;
 
 /*
  * Catalogue identity: slug, SKU and barcode (P1-E3-T8).
@@ -67,6 +70,46 @@ it('derives a category slug the same way', function () {
     $second = Category::factory()->create(['name' => 'Elektronik', 'slug' => '']);
 
     expect($second->slug)->toBe('elektronik-2');
+});
+
+/*
+ * The factories themselves (BUG-08). Their slug used to be derived from the
+ * random name they build, so a caller overriding only `name` got a row whose
+ * slug still carried an unrelated product name — and every listing that
+ * searches name **or** slug pulled that row in at random, roughly 1 create in
+ * 15. These assert the slug follows the name the caller actually asked for.
+ */
+
+it('derives a factory product slug from a name the caller overrode', function () {
+    $product = Product::factory()->create(['name' => 'Kipas Angin Berdiri']);
+
+    expect($product->slug)->toStartWith('kipas-angin-berdiri-');
+});
+
+it('derives a factory category slug from a name the caller overrode', function () {
+    $category = Category::factory()->create(['name' => 'Rumah Tangga']);
+
+    expect($category->slug)->toStartWith('rumah-tangga-');
+});
+
+it('derives a factory attribute slug from a name the caller overrode', function () {
+    $attribute = ProductAttribute::factory()->create(['name' => 'Ukuran Sepatu']);
+
+    expect($attribute->slug)->toStartWith('ukuran-sepatu-');
+});
+
+it('keeps a factory product out of a search for an unrelated catalogue name', function () {
+    $unrelated = collect(ProductFactory::NAMES)
+        ->reject(fn (string $name): bool => $name === 'Kipas Angin Berdiri');
+
+    Product::factory()->count(60)->create(['name' => 'Kipas Angin Berdiri']);
+
+    $slugs = Product::pluck('slug');
+
+    foreach ($unrelated as $name) {
+        expect($slugs->filter(fn (string $slug): bool => str_contains($slug, Str::slug($name))))
+            ->toBeEmpty();
+    }
 });
 
 it('upper-cases a variant sku so case alone cannot duplicate one', function () {

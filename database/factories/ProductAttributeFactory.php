@@ -18,15 +18,17 @@ class ProductAttributeFactory extends Factory
     public const NAMES = ['Warna', 'Ukuran', 'Bahan', 'Kapasitas', 'Rasa', 'Aroma'];
 
     /**
+     * The slug follows the *final* `name` attribute, not the random name built
+     * here — see the note in `ProductFactory::definition()` (BUG-08).
+     *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
-        $name = fake()->randomElement(self::NAMES).' '.fake()->unique()->numberBetween(1, 99999);
-
         return [
-            'name' => $name,
-            'slug' => Str::slug($name),
+            'name' => fake()->randomElement(self::NAMES).' '.fake()->unique()->numberBetween(1, 99999),
+            'slug' => fn (array $attributes): string => Str::slug((string) $attributes['name'])
+                .'-'.fake()->unique()->numberBetween(1, 99999),
             'type' => ProductAttributeType::Select,
             'sort_order' => 0,
         ];

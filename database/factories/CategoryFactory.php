@@ -24,16 +24,19 @@ class CategoryFactory extends Factory
     ];
 
     /**
+     * The slug follows the *final* `name` attribute, not the random name built
+     * here — see the note in `ProductFactory::definition()` (BUG-08).
+     * `CategoryController` searches name **or** slug too.
+     *
      * @return array<string, mixed>
      */
     public function definition(): array
     {
-        $name = fake()->randomElement(self::NAMES).' '.fake()->unique()->numberBetween(1, 99999);
-
         return [
             'parent_id' => null,
-            'name' => $name,
-            'slug' => Str::slug($name),
+            'name' => fake()->randomElement(self::NAMES).' '.fake()->unique()->numberBetween(1, 99999),
+            'slug' => fn (array $attributes): string => Str::slug((string) $attributes['name'])
+                .'-'.fake()->unique()->numberBetween(1, 99999),
             'description' => fake()->sentence(),
             'image_path' => null,
             'icon' => null,
