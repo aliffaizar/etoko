@@ -8,6 +8,7 @@ use App\Enums\FulfillmentType;
 use App\Enums\OrderChannel;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use Carbon\CarbonInterface;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -84,6 +85,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, OrderItem> $items
  * @property-read Collection<int, OrderStatusHistory> $statusHistories
  * @property-read Collection<int, StockReservation> $stockReservations
+ * @property-read Collection<int, Payment> $payments
  */
 #[Fillable([
     'order_number', 'user_id', 'branch_id', 'channel', 'fulfillment_type',
@@ -168,6 +170,114 @@ class Order extends Model
     public function stockReservations(): HasMany
     {
         return $this->hasMany(StockReservation::class);
+    }
+
+    /**
+     * Every attempt to collect the money for this order, newest first
+     * (P2-E1-T1).
+     *
+     * Newest first because that is the one every screen is about: the attempt
+     * in progress, or the one that just failed. The older rows are history, and
+     * keeping them is what makes "we asked for this money twice" visible.
+     *
+     * @return HasMany<Payment, $this>
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class)->orderByDesc('id');
+    }
+
+    /**
+     * The attempt still waiting for money, or null when there is none.
+     *
+     * At most one can exist: `InitiatePayment` closes any open attempt before
+     * opening another, so a customer who switches method does not leave two
+     * live asks for the same order.
+     *
+     * Reads a loaded `payments` relation when the caller has one, so a listing
+     * costs no query per row.
+     */
+    public function openPayment(): ?Payment
+    {
+        if ($this->relationLoaded('payments')) {
+            return $this->payments->first(fn (Payment $payment): bool => $payment->isOpen());
+        }
+
+        return $this->payments()->open()->first();
+    }
+
+    /**
+     * Whether this order's money is collected by the courier (ADR-040).
+     *
+     * Read from the order's most recent attempt rather than from a column:
+     * the method is a property of the attempt, and a customer may switch from
+     * COD to a transfer before anybody has collected anything.
+     *
+     * This is what `TransitionOrderStatus` consults when an order reaches
+     * `paid`, so a COD order is confirmed — its goods committed — while its
+     * `payment_status` stays `pending` until the cash is recorded.
+     */
+    public function requiresCashOnDelivery(): bool
+    {
+        $payment = $this->relationLoaded('payments')
+            ? $this->payments->first()
+            : $this->payments()->latestFirst()->first();
+
+        return $payment instanceof Payment && $payment->method_type->isCollectedOnDelivery();
+    }
+
+    /**
+     * When the money for this order has to arrive, or null when nothing is
+     * holding it (P2-E1-T3, ADR-041).
+     *
+     * **Taken from the stock holds, not configured separately.** The hold is
+     * what keeps the goods off the shelf; a payment window that outlived it
+     * would show a customer an order they can still pay for whose units have
+     * gone back on sale, and `CommitReservation` would then have nothing to
+     * commit when they did — the exact leak `HIGH-03` was. The earliest hold
+     * decides, because the first one to lapse is the first line of the order
+     * that can no longer be filled.
+     *
+     * Null for an order holding nothing: a COD order whose goods have already
+     * been committed is not waiting on a clock, and neither is an order whose
+     * holds have been released.
+     */
+    public function paymentDeadline(): ?CarbonInterface
+    {
+        $earliest = $this->stockReservations()
+            ->active()
+            ->whereNotNull('expires_at')
+            ->min('expires_at');
+
+        return $earliest === null ? null : Carbon::parse($earliest);
+    }
+
+    /**
+     * Why this order cannot be paid for, or null when it can.
+     *
+     * One source for `InitiatePayment`'s refusal and for the `can.pay` flag
+     * the storefront reads, so the pay button is never offered for an order
+     * the server would turn down.
+     */
+    public function paymentBlockedReason(): ?string
+    {
+        if ($this->payment_status === PaymentStatus::Paid) {
+            return 'Pesanan ini sudah lunas.';
+        }
+
+        if ($this->status !== OrderStatus::PendingPayment) {
+            return "Pesanan berstatus \"{$this->status->label()}\" tidak dapat dibayar lagi.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a customer may still start or retry a payment for this order.
+     */
+    public function isPayable(): bool
+    {
+        return $this->paymentBlockedReason() === null;
     }
 
     /**

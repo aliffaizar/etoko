@@ -8,8 +8,10 @@ import {
     ShoppingBag,
     Store,
     Truck,
+    Wallet,
 } from 'lucide-react';
 import { useState } from 'react';
+import { PaymentMethodPicker } from '@/components/shop/payment-method-picker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -21,6 +23,7 @@ import account from '@/routes/shop/account';
 import checkout from '@/routes/shop/checkout';
 import { index as cartIndex } from '@/routes/shop/cart';
 import type { FulfillmentType } from '@/types/order';
+import type { CheckoutPaymentMethods } from '@/types/payment';
 
 type CheckoutItem = {
     id: number;
@@ -67,12 +70,18 @@ type CheckoutProps = {
     };
     addresses: CheckoutAddress[];
     costs: { flat_shipping_cost: number; tax_percent: number };
+    /**
+     * Quoted for both ways of receiving the goods, because the customer has
+     * not chosen one yet and COD depends on it (P2-E1-T7).
+     */
+    payment_methods: CheckoutPaymentMethods;
     reservation_minutes: number;
 };
 
 type CheckoutForm = {
     fulfillment_type: FulfillmentType;
     address_id: number | null;
+    payment_method_id: number | null;
     customer_note: string;
     [key: string]: FulfillmentType | number | null | string;
 };
@@ -84,16 +93,23 @@ export default function Checkout({
     branch,
     addresses,
     costs,
+    payment_methods: paymentMethods,
     reservation_minutes: reservationMinutes,
 }: CheckoutProps) {
     const firstOption = branch.fulfillment_options[0]?.value ?? 'delivery';
     const defaultAddress =
         addresses.find((address) => address.is_default) ?? addresses[0] ?? null;
 
+    /** The first method this fulfilment can actually use, or nothing. */
+    const firstEligible = (fulfillment: FulfillmentType) =>
+        paymentMethods[fulfillment].find((method) => method.is_eligible)?.id ??
+        null;
+
     const form = useForm<CheckoutForm>({
         fulfillment_type: firstOption,
         address_id:
             firstOption === 'delivery' ? (defaultAddress?.id ?? null) : null,
+        payment_method_id: firstEligible(firstOption),
         customer_note: '',
     });
 
@@ -104,14 +120,35 @@ export default function Checkout({
     const isPickup = form.data.fulfillment_type === 'pickup';
     const shippingCost = isPickup ? 0 : costs.flat_shipping_cost;
     const tax = Math.round((cart.subtotal * costs.tax_percent) / 100);
-    const grandTotal = cart.subtotal + shippingCost + tax;
+    const orderTotal = cart.subtotal + shippingCost + tax;
 
+    const methodsForFulfillment = paymentMethods[form.data.fulfillment_type];
+    const selectedMethod = methodsForFulfillment.find(
+        (method) => method.id === form.data.payment_method_id,
+    );
+    const paymentFee = selectedMethod?.fee_amount ?? 0;
+
+    /**
+     * Switching how the goods arrive re-decides how they can be paid for: COD
+     * is delivery-only, so a method chosen for one may be ineligible for the
+     * other. Rather than leave an invalid choice selected and let the server
+     * refuse it, the selection falls back to the first method the new
+     * fulfilment can use.
+     */
     const chooseFulfillment = (value: FulfillmentType) => {
+        const stillEligible = paymentMethods[value].some(
+            (method) =>
+                method.id === form.data.payment_method_id && method.is_eligible,
+        );
+
         form.setData({
             ...form.data,
             fulfillment_type: value,
             address_id:
                 value === 'pickup' ? null : (defaultAddress?.id ?? null),
+            payment_method_id: stillEligible
+                ? form.data.payment_method_id
+                : firstEligible(value),
         });
     };
 
@@ -395,6 +432,26 @@ export default function Checkout({
                         </section>
 
                         <section className="rounded-lg border p-4">
+                            <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                                <Wallet aria-hidden className="size-4" />
+                                Metode pembayaran
+                            </h2>
+                            <p className="mb-3 text-xs text-muted-foreground">
+                                Pilih cara pembayaran. Instruksinya muncul di
+                                halaman pesanan setelah pesanan dibuat.
+                            </p>
+
+                            <PaymentMethodPicker
+                                methods={methodsForFulfillment}
+                                selectedId={form.data.payment_method_id}
+                                onSelect={(id) =>
+                                    form.setData('payment_method_id', id)
+                                }
+                                error={form.errors.payment_method_id}
+                            />
+                        </section>
+
+                        <section className="rounded-lg border p-4">
                             <Label
                                 htmlFor="customer_note"
                                 className="text-sm font-semibold"
@@ -455,6 +512,16 @@ export default function Checkout({
                                     </dd>
                                 </div>
                             )}
+                            {paymentFee > 0 && (
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-muted-foreground">
+                                        Biaya {selectedMethod?.name}
+                                    </dt>
+                                    <dd className="tabular-nums">
+                                        {formatRupiah(paymentFee)}
+                                    </dd>
+                                </div>
+                            )}
                             <div className="flex justify-between gap-4">
                                 <dt className="text-muted-foreground">
                                     Berat total
@@ -470,7 +537,7 @@ export default function Checkout({
                         <div className="flex items-baseline justify-between gap-4">
                             <span className="font-semibold">Total bayar</span>
                             <span className="text-lg font-semibold tabular-nums">
-                                {formatRupiah(grandTotal)}
+                                {formatRupiah(orderTotal + paymentFee)}
                             </span>
                         </div>
 
@@ -480,7 +547,8 @@ export default function Checkout({
                             disabled={
                                 form.processing ||
                                 needsAddress ||
-                                shortLines.length > 0
+                                shortLines.length > 0 ||
+                                form.data.payment_method_id === null
                             }
                         >
                             {form.processing ? 'Memproses…' : 'Buat Pesanan'}
@@ -491,9 +559,9 @@ export default function Checkout({
                                 aria-hidden
                                 className="mt-0.5 size-3.5 shrink-0"
                             />
-                            Pembayaran manual: setelah pesanan dibuat, cabang
-                            akan menghubungi Anda untuk konfirmasi. Pembayaran
-                            online hadir pada tahap berikutnya.
+                            {selectedMethod?.collected_on_delivery
+                                ? 'Pesanan COD langsung diproses cabang. Siapkan uang tunai sesuai total saat kurir tiba.'
+                                : `Selesaikan pembayaran dalam ${reservationMinutes} menit setelah pesanan dibuat, selama stok masih ditahan untuk Anda.`}
                         </p>
                     </aside>
                 </div>

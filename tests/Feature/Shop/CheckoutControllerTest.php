@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Order;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
@@ -28,6 +29,11 @@ beforeEach(function () {
     $this->warehouse = Warehouse::factory()->for($this->branch)->default()->create();
     $this->customer = User::factory()->customer()->create();
     $this->address = Address::factory()->for($this->customer)->create(['is_default' => true]);
+
+    // Checkout asks how the order will be paid for since P2-E1-T3, so every
+    // post below names a method. A plain manual transfer is the method with no
+    // fence around it, which keeps these tests about checkout.
+    $this->paymentMethod = PaymentMethod::factory()->create(['name' => 'Transfer Bank BCA']);
 });
 
 /**
@@ -96,6 +102,7 @@ describe('placing the order', function () {
         $response = $this->actingAs($this->customer)->post(route('shop.checkout.store'), [
             'fulfillment_type' => 'delivery',
             'address_id' => $this->address->getKey(),
+            'payment_method_id' => $this->paymentMethod->getKey(),
         ]);
 
         $order = Order::acrossBranches()->sole();
@@ -111,7 +118,10 @@ describe('placing the order', function () {
         checkoutCart();
 
         $this->actingAs($this->customer)
-            ->post(route('shop.checkout.store'), ['fulfillment_type' => 'pickup'])
+            ->post(route('shop.checkout.store'), [
+                'fulfillment_type' => 'pickup',
+                'payment_method_id' => $this->paymentMethod->getKey(),
+            ])
             ->assertRedirect();
 
         expect(Order::acrossBranches()->sole()->shipping_address_line)->toBeNull();
@@ -124,6 +134,7 @@ describe('placing the order', function () {
             ->post(route('shop.checkout.store'), [
                 'fulfillment_type' => 'pickup',
                 'address_id' => $this->address->getKey(),
+                'payment_method_id' => $this->paymentMethod->getKey(),
             ])
             ->assertSessionHasErrors('address_id');
 
@@ -134,7 +145,10 @@ describe('placing the order', function () {
         checkoutCart();
 
         $this->actingAs($this->customer)
-            ->post(route('shop.checkout.store'), ['fulfillment_type' => 'delivery'])
+            ->post(route('shop.checkout.store'), [
+                'fulfillment_type' => 'delivery',
+                'payment_method_id' => $this->paymentMethod->getKey(),
+            ])
             ->assertSessionHasErrors('address_id');
     });
 
@@ -142,7 +156,10 @@ describe('placing the order', function () {
         checkoutCart();
 
         $this->actingAs($this->customer)
-            ->post(route('shop.checkout.store'), ['fulfillment_type' => 'teleport'])
+            ->post(route('shop.checkout.store'), [
+                'fulfillment_type' => 'teleport',
+                'payment_method_id' => $this->paymentMethod->getKey(),
+            ])
             ->assertSessionHasErrors('fulfillment_type');
     });
 
@@ -153,6 +170,7 @@ describe('placing the order', function () {
             ->post(route('shop.checkout.store'), [
                 'fulfillment_type' => 'delivery',
                 'address_id' => $this->address->getKey(),
+                'payment_method_id' => $this->paymentMethod->getKey(),
             ])
             ->assertSessionHasErrors('checkout');
 
@@ -167,6 +185,7 @@ describe('placing the order', function () {
             ->post(route('shop.checkout.store'), [
                 'fulfillment_type' => 'delivery',
                 'address_id' => $stranger->getKey(),
+                'payment_method_id' => $this->paymentMethod->getKey(),
             ])
             ->assertSessionHasErrors('checkout');
 
@@ -178,18 +197,33 @@ describe('placing the order', function () {
             ->assertRedirect(route('login'));
     });
 
+    it('refuses a checkout that names no payment method', function () {
+        checkoutCart();
+
+        $this->actingAs($this->customer)
+            ->post(route('shop.checkout.store'), [
+                'fulfillment_type' => 'delivery',
+                'address_id' => $this->address->getKey(),
+            ])
+            ->assertSessionHasErrors('payment_method_id');
+
+        expect(Order::acrossBranches()->count())->toBe(0);
+    });
+
     it('empties the cart so the order cannot be placed twice', function () {
         checkoutCart();
 
         $this->actingAs($this->customer)->post(route('shop.checkout.store'), [
             'fulfillment_type' => 'delivery',
             'address_id' => $this->address->getKey(),
+            'payment_method_id' => $this->paymentMethod->getKey(),
         ]);
 
         $this->actingAs($this->customer)
             ->post(route('shop.checkout.store'), [
                 'fulfillment_type' => 'delivery',
                 'address_id' => $this->address->getKey(),
+                'payment_method_id' => $this->paymentMethod->getKey(),
             ])
             ->assertSessionHasErrors('checkout');
 

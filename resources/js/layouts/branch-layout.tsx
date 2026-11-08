@@ -10,6 +10,7 @@ import {
     Store,
     Tags,
     Users,
+    Wallet,
 } from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
@@ -26,6 +27,7 @@ import branchPrices from '@/routes/admin/branches/prices';
 import branchProducts from '@/routes/admin/branches/products';
 import { index as categoriesIndex } from '@/routes/admin/categories';
 import { index as ordersIndex } from '@/routes/admin/orders';
+import { index as paymentsIndex } from '@/routes/admin/payments';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
@@ -70,6 +72,18 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: ordersIndex(),
                 icon: ShoppingCart,
                 permission: 'orders.view',
+            },
+            // The branch's own payment queue, on the same screens central uses
+            // (P2-E1-T4). `Payment` carries the branch global scope through a
+            // `branch_id` copied from the order, so this arrives narrowed to
+            // the branch that has to verify the transfers. A cashier holds
+            // `payments.view` and sees it read-only; confirming money needs
+            // `payments.verify`.
+            {
+                title: 'Pembayaran',
+                href: paymentsIndex(),
+                icon: Wallet,
+                permission: 'payments.view',
             },
         ],
     });

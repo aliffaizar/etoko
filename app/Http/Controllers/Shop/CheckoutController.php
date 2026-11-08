@@ -3,19 +3,25 @@
 namespace App\Http\Controllers\Shop;
 
 use App\Actions\Order\PlaceOrder;
+use App\Actions\Payment\InitiatePayment;
 use App\Enums\FulfillmentType;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\PaymentFailedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shop\PlaceOrderRequest;
 use App\Models\Address;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\PaymentMethod;
 use App\Models\Stock;
 use App\Models\User;
 use App\Services\Branch\StorefrontBranch;
 use App\Services\Cart\CartService;
+use App\Services\Payment\Data\PaymentContext;
+use App\Services\Payment\PaymentMethodEligibility;
+use App\Support\PaymentPresenter;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -38,12 +44,29 @@ use Inertia\Response;
  * transaction — the screen is a quotation, not a promise. A refusal comes back
  * as a validation error on the field it is about, so it lands next to the
  * control that caused it rather than in a banner at the top.
+ *
+ * **Four decisions since `P2-E1-T3`**, because how to pay belongs here: the
+ * branch, the destination and the total are all known at checkout, and those
+ * are exactly what decides whether COD is on offer (`P2-E1-T7`). The methods
+ * are judged against the screen's own quotation — subtotal plus the same flat
+ * shipping and tax `PlaceOrder` applies — and judged **again** by
+ * `InitiatePayment` against the order that actually gets written. The second
+ * check is the authoritative one; the first exists so a customer is not
+ * offered COD and then refused it.
+ *
+ * Placing the order and asking for the money are **two steps, not one**. The
+ * gateway call in `InitiatePayment` is an HTTP request to somebody else's
+ * server, and running it inside `PlaceOrder`'s transaction would hold the
+ * cart's and the stock's row locks for as long as Midtrans took to answer. If
+ * the second step fails, the order exists and is unpaid — which is a state the
+ * order page handles, because it offers the method picker anyway.
  */
 class CheckoutController extends Controller
 {
     public function __construct(
         private readonly CartService $cartService,
         private readonly StorefrontBranch $storefrontBranch,
+        private readonly PaymentMethodEligibility $eligibility,
     ) {}
 
     /**
@@ -63,14 +86,17 @@ class CheckoutController extends Controller
             return to_route('shop.cart.index');
         }
 
+        $addresses = $this->addressProps($customer);
+
         return Inertia::render('shop/checkout', [
             'cart' => $this->cartProps($cart),
             'branch' => $this->branchProps($branch),
-            'addresses' => $this->addressProps($customer),
+            'addresses' => $addresses,
             'costs' => [
                 'flat_shipping_cost' => PlaceOrder::flatShippingCost(),
                 'tax_percent' => PlaceOrder::taxPercent(),
             ],
+            'payment_methods' => $this->paymentMethodProps($branch, $cart, $addresses),
             'reservation_minutes' => (int) config('shop.reservation_minutes'),
         ]);
     }
@@ -84,12 +110,16 @@ class CheckoutController extends Controller
      * having bought it first — a race the customer did not lose through any
      * fault of their own, so it says so plainly (BR-6).
      */
-    public function store(PlaceOrderRequest $request, PlaceOrder $placeOrder): RedirectResponse
-    {
+    public function store(
+        PlaceOrderRequest $request,
+        PlaceOrder $placeOrder,
+        InitiatePayment $initiatePayment,
+    ): RedirectResponse {
         /** @var User $customer */
         $customer = $request->user();
         $branch = $this->storefrontBranch->currentOrFail();
         $cart = $this->cartService->resolve($customer);
+        $method = PaymentMethod::query()->findOrFail($request->paymentMethodId());
 
         try {
             $order = $placeOrder->handle($cart, $branch, $customer, $request->toCheckoutData());
@@ -104,6 +134,24 @@ class CheckoutController extends Controller
                     .'Kurangi jumlahnya di keranjang, lalu coba lagi.',
                 'items' => $raced->getMessage(),
             ]);
+        }
+
+        try {
+            $initiatePayment->handle($order, $method, $customer);
+        } catch (PaymentFailedException $refused) {
+            // The order is placed and its stock is held; only the ask for
+            // money failed — a gateway that was down, or a method that stopped
+            // being eligible between the screen and here. The order page is
+            // where a method is chosen anyway, so the customer is sent there
+            // with the reason rather than being left on a checkout whose cart
+            // is now empty.
+            Inertia::flash('toast', [
+                'type' => 'warning',
+                'message' => "Pesanan {$order->order_number} sudah dibuat, tetapi pembayarannya belum dimulai: "
+                    .$refused->getMessage(),
+            ]);
+
+            return to_route('shop.account.orders.show', [$order, 'baru' => 1]);
         }
 
         Inertia::flash('toast', [
@@ -196,6 +244,77 @@ class CheckoutController extends Controller
                 ),
             )),
         ];
+    }
+
+    /**
+     * The ways this cart may be paid for, each with its verdict (P2-E1-T7).
+     *
+     * Judged against the **screen's own quotation** of the order: the cart's
+     * subtotal plus the flat delivery charge and the tax `PlaceOrder` will
+     * apply. The delivery charge is included because a method's ceiling is a
+     * limit on the bill the customer sees, and quoting it against the subtotal
+     * alone would offer COD for an order that then exceeded the limit.
+     *
+     * The destination is taken from the customer's **default** address, since
+     * that is the one the screen pre-selects. Switching to an address in
+     * another city re-evaluates nothing until the order is placed, and
+     * `InitiatePayment` has the final word — a mismatch there is reported on
+     * the order page rather than silently ignored.
+     *
+     * Both fulfilment types are quoted for, because the customer has not
+     * chosen one yet; the screen filters by what they pick, which is why each
+     * method carries its own `fulfillment_types`.
+     *
+     * @param  array<int, array<string, mixed>>  $addresses
+     * @return array<string, mixed>
+     */
+    private function paymentMethodProps(Branch $branch, Cart $cart, array $addresses): array
+    {
+        $default = $addresses[0] ?? null;
+        $methods = PaymentMethod::query()->active()->ordered()->get();
+
+        $quote = fn (FulfillmentType $type): PaymentContext => new PaymentContext(
+            branchId: $branch->getKey(),
+            fulfillmentType: $type,
+            amount: $this->quotedTotal($cart, $type),
+            cityName: $type === FulfillmentType::Delivery && is_string($default['city_name'] ?? null)
+                ? $default['city_name']
+                : null,
+            provinceName: $type === FulfillmentType::Delivery && is_string($default['province_name'] ?? null)
+                ? $default['province_name']
+                : null,
+        );
+
+        return [
+            'delivery' => PaymentPresenter::methodChoices(
+                $methods,
+                $quote(FulfillmentType::Delivery),
+                $this->eligibility,
+            ),
+            'pickup' => PaymentPresenter::methodChoices(
+                $methods,
+                $quote(FulfillmentType::Pickup),
+                $this->eligibility,
+            ),
+        ];
+    }
+
+    /**
+     * What the order would come to, the same way `PlaceOrder` works it out.
+     *
+     * Not a second formula: the two figures it adds — the flat delivery charge
+     * and the tax percentage — are read from the same `PlaceOrder` methods the
+     * action itself uses, so the quotation and the order cannot disagree about
+     * anything except a price that changed in between, which `PlaceOrder`
+     * refuses outright.
+     */
+    private function quotedTotal(Cart $cart, FulfillmentType $fulfillment): int
+    {
+        $subtotal = $cart->subtotal();
+        $shipping = $fulfillment->requiresShipping() ? PlaceOrder::flatShippingCost() : 0;
+        $tax = (int) round($subtotal * PlaceOrder::taxPercent() / 100);
+
+        return $subtotal + $shipping + $tax;
     }
 
     /**

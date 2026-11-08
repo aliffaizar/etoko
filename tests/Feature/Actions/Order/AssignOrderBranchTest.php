@@ -11,6 +11,7 @@ use App\Exceptions\InsufficientStockException;
 use App\Models\Branch;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
@@ -214,4 +215,19 @@ describe('a refused move', function () {
         expect(fn () => assignBranch()->handle($order, $this->origin))
             ->toThrow(LogicException::class);
     });
+});
+
+it('takes the order payment attempts to the new branch with it (ADR-038)', function () {
+    $order = orderHeldAtOrigin(3);
+    stockAtDestination(10);
+
+    $payment = Payment::factory()->forOrder($order)->create();
+
+    assignBranch()->handle($order, $this->destination);
+
+    // `payments.branch_id` is a copy of the order's, kept so the table can be
+    // branch-scoped. A copy that is not maintained would hide the attempt from
+    // the branch that has to verify it.
+    expect($payment->fresh()->branch_id)->toBe($this->destination->getKey())
+        ->and($order->fresh()->branch_id)->toBe($this->destination->getKey());
 });

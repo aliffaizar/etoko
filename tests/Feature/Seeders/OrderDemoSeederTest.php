@@ -1,10 +1,14 @@
 <?php
 
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethodType;
+use App\Enums\PaymentStatus;
+use App\Enums\PaymentTransactionStatus;
 use App\Enums\ReservationStatus;
 use App\Models\CartItem;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\Stock;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
@@ -12,6 +16,7 @@ use Database\Seeders\CatalogDemoSeeder;
 use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\InventoryDemoSeeder;
 use Database\Seeders\OrderDemoSeeder;
+use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\RolePermissionSeeder;
 
 /*
@@ -149,6 +154,71 @@ it('pushes the live hold past the expiry sweep, so the demo survives the first m
     expect($holds)->not->toBeEmpty()
         ->and($holds->every(fn (StockReservation $hold): bool => $hold->expires_at->isAfter(now()->addDay())))
         ->toBeTrue();
+});
+
+it('gives the payment screen one of each state to show (P2-E1-T1)', function () {
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    $states = Payment::acrossBranches()->pluck('status')->map->value->unique();
+
+    expect(Payment::acrossBranches()->count())->toBeGreaterThan(0)
+        ->and($states)->toContain(PaymentTransactionStatus::Pending->value)
+        ->toContain(PaymentTransactionStatus::Success->value)
+        ->toContain(PaymentTransactionStatus::Expired->value);
+});
+
+it('keeps every payment branch equal to its order branch (ADR-038)', function () {
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    $drifted = Payment::acrossBranches()
+        ->with('order')
+        ->get()
+        ->filter(fn (Payment $payment): bool => $payment->branch_id !== $payment->order->branch_id);
+
+    expect($drifted)->toBeEmpty();
+});
+
+it('keeps every payment amount equal to its order total plus the method fee (ADR-039)', function () {
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    $drifted = Payment::acrossBranches()
+        ->with('order')
+        ->get()
+        ->filter(fn (Payment $payment): bool => $payment->amount !== $payment->order->grand_total + $payment->fee_amount);
+
+    expect($drifted)->toBeEmpty();
+});
+
+it('leaves a COD order processing with the money still outstanding (ADR-040)', function () {
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    $cod = Payment::acrossBranches()
+        ->where('method_type', PaymentMethodType::Cod)
+        ->with('order')
+        ->get();
+
+    expect($cod)->not->toBeEmpty()
+        ->and($cod->every(fn (Payment $payment): bool => $payment->order->payment_status === PaymentStatus::Pending
+            && $payment->order->status !== OrderStatus::PendingPayment))
+        ->toBeTrue();
+});
+
+it('never leaves an order with two live asks for the same money', function () {
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    $doubled = Payment::acrossBranches()
+        ->open()
+        ->selectRaw('order_id, count(*) as total')
+        ->groupBy('order_id')
+        ->having('total', '>', 1)
+        ->get();
+
+    expect($doubled)->toBeEmpty();
 });
 
 it('adds nothing on a second run', function () {

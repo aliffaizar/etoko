@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Actions\Order\ReleaseReservation;
 use App\Actions\Order\TransitionOrderStatus;
+use App\Actions\Payment\ExpirePayment;
 use App\Enums\OrderStatus;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Models\Order;
@@ -43,6 +44,12 @@ use Illuminate\Support\Facades\Log;
  *   statuses it means rather than one that could reach a hold whose order is
  *   still waiting to be paid (HIGH-03).
  *
+ * The job also closes **overdue payment attempts** (`P2-E1-T3`). They are
+ * swept here rather than by a job of their own because an attempt's deadline
+ * *is* its order's stock hold (ADR-041): one clock swept by one run cannot
+ * leave an order whose goods are back on sale still showing a payable virtual
+ * account, or an order whose payment has lapsed still holding its units.
+ *
  * `WithoutOverlapping` keeps two runs apart. The actions are each safe to run
  * twice — they re-read every row under its lock and skip holds already settled
  * — but two sweeps racing would spend their time losing to each other's locks.
@@ -73,12 +80,17 @@ class ExpireStockReservations implements ShouldQueue
     public function handle(
         TransitionOrderStatus $transitionOrderStatus,
         ReleaseReservation $releaseReservation,
+        ExpirePayment $expirePayment,
     ): void {
         $moment = $this->asOf ?? Carbon::now();
 
+        // Orders first, because expiring one closes its own payment attempt as
+        // part of the transition; whatever the sweep below finds afterwards is
+        // an attempt whose order is no longer waiting on it.
         $this->expireOrders($transitionOrderStatus, $moment);
         $this->releaseOrphanHolds($releaseReservation, $moment);
         $this->releaseStrandedHolds($releaseReservation, $moment);
+        $expirePayment->sweep($moment);
     }
 
     /**

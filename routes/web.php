@@ -8,6 +8,7 @@ use App\Http\Controllers\Shop\CatalogController;
 use App\Http\Controllers\Shop\CheckoutController;
 use App\Http\Controllers\Shop\HomeController;
 use App\Http\Controllers\Shop\OrderController;
+use App\Http\Controllers\Shop\PaymentController;
 use App\Http\Controllers\Shop\ProductController;
 use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
@@ -144,6 +145,28 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
             Route::get('/', [OrderController::class, 'index'])->name('index');
             Route::get('{order}', [OrderController::class, 'show'])->name('show');
             Route::post('{order}/batal', [OrderController::class, 'cancel'])->name('cancel');
+
+            /*
+             * Paying for the order (P2-E1-T3).
+             *
+             * Both live under the order rather than under a payment of their
+             * own, because the customer's authorisation *is* the order: the
+             * controller checks `orders.user_id`, so somebody else's payment
+             * is not found rather than refused.
+             *
+             * `bayar` is both "pay now" and "pay a different way" —
+             * `InitiatePayment` closes the previous attempt before opening the
+             * next, so there is one endpoint instead of two that could
+             * disagree. Throttled because each call opens a row and may call a
+             * gateway.
+             */
+            Route::post('{order}/bayar', [PaymentController::class, 'store'])
+                ->middleware('throttle:20,1')
+                ->name('payments.store');
+
+            Route::post('{order}/bayar/{payment}/bukti', [PaymentController::class, 'uploadProof'])
+                ->middleware('throttle:20,1')
+                ->name('payments.proof');
         });
     });
 });

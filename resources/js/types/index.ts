@@ -6,6 +6,7 @@ export type * from './data-table';
 export type * from './navigation';
 export type * from './order';
 export type * from './panel';
+export type * from './payment';
 export type * from './product';
 export type * from './product-attribute';
 export type * from './product-image';

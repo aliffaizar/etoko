@@ -161,6 +161,8 @@ export type OrderDetail = OrderRow & {
         update_status?: boolean;
         cancel?: boolean;
         assign_branch?: boolean;
+        /** Whether the customer may still start or retry a payment (P2-E1-T3). */
+        pay?: boolean;
     };
 };
 

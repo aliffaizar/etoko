@@ -2,11 +2,14 @@
 
 use App\Actions\Order\ReserveStock;
 use App\Actions\Order\TransitionOrderStatus;
+use App\Actions\Payment\ExpirePayment;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\PaymentTransactionStatus;
 use App\Enums\ReservationStatus;
 use App\Jobs\ExpireStockReservations;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
@@ -258,5 +261,49 @@ describe('a backlog bigger than one batch (HIGH-03)', function () {
         expect(Order::acrossBranches()->where('status', OrderStatus::Expired)->count())->toBe($total)
             ->and(Order::acrossBranches()->where('status', OrderStatus::PendingPayment)->count())->toBe(0)
             ->and((int) Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
+    });
+});
+
+describe('the payment attempts it closes with them (P2-E1-T3, ADR-041)', function () {
+    it('closes the order payment attempt as part of expiring the order', function () {
+        [$order] = orderWithHold();
+        $payment = Payment::factory()->forOrder($order)->create();
+
+        sweepReservations(Carbon::now()->addMinutes(16));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Expired)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Expired)
+            ->and($payment->fresh()->failure_reason)->toBe(ExpirePayment::DEADLINE_PASSED);
+    });
+
+    it('sweeps an overdue attempt whose order is no longer waiting on it', function () {
+        // A COD order has no hold ticking down, so nothing above would reach
+        // its attempt; an attempt with a deadline of its own still has to be
+        // closed by somebody.
+        $order = Order::factory()->paid()->create();
+        $payment = Payment::factory()->forOrder($order)->overrun()->create();
+
+        sweepReservations();
+
+        expect($payment->fresh()->status)->toBe(PaymentTransactionStatus::Expired);
+    });
+
+    it('leaves an attempt that is still within its window alone', function () {
+        [$order] = orderWithHold();
+        $payment = Payment::factory()->forOrder($order)->create();
+
+        sweepReservations();
+
+        expect($payment->fresh()->status)->toBe(PaymentTransactionStatus::Pending);
+    });
+
+    it('never closes an attempt whose order is still payable', function () {
+        [$order] = orderWithHold();
+        $payment = Payment::factory()->forOrder($order)->expiringAt(now()->addHour())->create();
+
+        sweepReservations();
+
+        expect($order->fresh()->status)->toBe(OrderStatus::PendingPayment)
+            ->and($payment->fresh()->isOpen())->toBeTrue();
     });
 });

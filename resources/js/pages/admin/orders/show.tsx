@@ -10,14 +10,22 @@ import {
     Store,
     Truck,
     User,
+    Wallet,
 } from 'lucide-react';
 import { useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
 import Heading from '@/components/heading';
+import { PaymentCard } from '@/components/admin/payment-card';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -46,6 +54,7 @@ import {
     type OrderDetail,
     type OrderReservationRow,
 } from '@/types/order';
+import type { PaymentDetail } from '@/types/payment';
 
 type OrderShowProps = {
     order: OrderDetail;
@@ -53,6 +62,11 @@ type OrderShowProps = {
     blocked: { cancel: string | null; assign_branch: string | null };
     next_statuses: FilterOption[];
     branches: FilterOption[];
+    /**
+     * The order's payment attempts, newest first, each carrying its own
+     * `can.settle` (P2-E1-T4). Empty for an actor without `payments.view`.
+     */
+    payments: PaymentDetail[];
 };
 
 const RESERVATION_TONE = {
@@ -67,6 +81,7 @@ export default function OrderShow({
     blocked,
     next_statuses: nextStatuses,
     branches,
+    payments,
 }: OrderShowProps) {
     const [cancelling, setCancelling] = useState(false);
     const [moving, setMoving] = useState(false);
@@ -294,6 +309,33 @@ export default function OrderShow({
                                 </dl>
                             </CardContent>
                         </Card>
+
+                        {payments.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Wallet
+                                            aria-hidden
+                                            className="size-4"
+                                        />
+                                        Pembayaran
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Percobaan pembayaran pesanan ini,
+                                        terbaru di atas. Konfirmasi atau tolak
+                                        langsung dari sini.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="flex flex-col gap-4">
+                                    {payments.map((payment) => (
+                                        <PaymentCard
+                                            key={payment.id}
+                                            payment={payment}
+                                        />
+                                    ))}
+                                </CardContent>
+                            </Card>
+                        )}
 
                         <Card>
                             <CardHeader>

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
+import { PaymentPanel } from '@/components/shop/payment-panel';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -28,16 +29,26 @@ import { formatDateTime, formatRupiah, formatWeight } from '@/lib/format';
 import account from '@/routes/shop/account';
 import { ORDER_STATUS_TONE, PAYMENT_STATUS_TONE } from '@/types/order';
 import type { OrderDetail } from '@/types/order';
+import type { CustomerPayment, PaymentMethodChoice } from '@/types/payment';
 
 type OrderProps = {
     order: OrderDetail;
     cancel_blocked_reason: string | null;
+    payment_blocked_reason: string | null;
+    /** The attempt in progress, or the one that most recently failed. */
+    payment: CustomerPayment | null;
+    payment_history: CustomerPayment[];
+    payment_methods: PaymentMethodChoice[];
     just_placed: boolean;
 };
 
 export default function OrderPage({
     order,
     cancel_blocked_reason: cancelBlockedReason,
+    payment_blocked_reason: paymentBlockedReason,
+    payment,
+    payment_history: paymentHistory,
+    payment_methods: paymentMethods,
     just_placed: justPlaced,
 }: OrderProps) {
     const [cancelling, setCancelling] = useState(false);
@@ -88,9 +99,10 @@ export default function OrderPage({
                             {/* No "Cabang" prefix: the branch name already
                                 carries the word ("Cabang Jakarta Pusat"). */}
                             <p>
-                                Stok sudah ditahan untuk Anda.{' '}
-                                {order.branch?.name ?? 'Cabang pemroses'} akan
-                                menghubungi Anda untuk konfirmasi pembayaran.
+                                Stok sudah ditahan untuk Anda. Selesaikan
+                                pembayarannya di panel di bawah;{' '}
+                                {order.branch?.name ?? 'cabang pemroses'} akan
+                                mengonfirmasinya.
                             </p>
                         </AlertDescription>
                     </Alert>
@@ -286,6 +298,15 @@ export default function OrderPage({
                     </div>
 
                     <aside className="flex flex-col gap-6">
+                        <PaymentPanel
+                            orderId={order.id}
+                            payment={payment}
+                            methods={paymentMethods}
+                            blockedReason={paymentBlockedReason}
+                            canPay={order.can.pay ?? false}
+                            history={paymentHistory}
+                        />
+
                         <section className="rounded-lg border p-4 text-sm">
                             <h2 className="mb-2 flex items-center gap-2 font-semibold">
                                 {order.shipping ? (

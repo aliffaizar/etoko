@@ -2,9 +2,12 @@
 
 namespace App\Actions\Order;
 
+use App\Actions\Payment\ExpirePayment;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Exceptions\IllegalOrderTransitionException;
+use App\Exceptions\InsufficientStockException;
+use App\Exceptions\ReservationMissingException;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\User;
@@ -28,6 +31,13 @@ use Illuminate\Support\Facades\DB;
  *    "when did this get paid, and who said so?" always has an answer.
  * 4. **The matching timestamp is stamped** on the order, which is only a
  *    denormalisation of the row above so listings can sort by it.
+ * 5. **Open payments follow the status too** (P2-E1-T3). An order that
+ *    expires or is cancelled must not leave a live ask for money behind it:
+ *    its stock has gone back on sale, so a customer finishing a transfer
+ *    afterwards would be paying for goods that are no longer theirs.
+ *    `ExpirePayment::forOrder()` closes the attempts and deliberately leaves
+ *    `payment_status` to this action, so a *cancelled* order does not read as
+ *    *expired*.
  *
  * The order is re-read under a row lock first. Two staff pressing "Proses"
  * at the same moment then queue: the second finds the order already past that
@@ -52,9 +62,19 @@ final class TransitionOrderStatus
      */
     public private(set) int $releasedHolds = 0;
 
+    /**
+     * How many open payment attempts the most recent `handle()` call closed.
+     *
+     * Written on every call, like `$releasedHolds`, so a caller can say
+     * something true about what it just did rather than something that is
+     * usually true.
+     */
+    public private(set) int $closedPayments = 0;
+
     public function __construct(
         private readonly CommitReservation $commitReservation,
         private readonly ReleaseReservation $releaseReservation,
+        private readonly ExpirePayment $expirePayment,
     ) {}
 
     /**
@@ -62,7 +82,9 @@ final class TransitionOrderStatus
      *
      * @param  string|null  $note  Shown on the timeline; the reason, in the actor's words.
      *
-     * @throws IllegalOrderTransitionException
+     * @throws IllegalOrderTransitionException when the move is not a legal edge of the state machine.
+     * @throws InsufficientStockException when reaching `paid` finds the branch's shelf short.
+     * @throws ReservationMissingException when reaching `paid` finds no hold left to commit.
      */
     public function handle(
         Order $order,
@@ -71,6 +93,7 @@ final class TransitionOrderStatus
         ?string $note = null,
     ): Order {
         $this->releasedHolds = 0;
+        $this->closedPayments = 0;
 
         return DB::transaction(function () use ($order, $to, $actor, $note): Order {
             $locked = $this->lock($order);
@@ -81,6 +104,9 @@ final class TransitionOrderStatus
             }
 
             $this->releasedHolds = $this->moveStock($locked, $to);
+            $this->closedPayments = $to->releasesReservedStock()
+                ? $this->expirePayment->forOrder($locked, $this->paymentClosureReason($to, $note))
+                : 0;
 
             $locked->fill(['status' => $to] + $this->sideEffectsOf($locked, $to, $note));
             $locked->save();
@@ -160,7 +186,15 @@ final class TransitionOrderStatus
         }
 
         if ($to === OrderStatus::Paid) {
-            $changes['payment_status'] = PaymentStatus::Paid;
+            // A COD order reaches `paid` because its goods are going out, not
+            // because its money came in: the courier has not been anywhere yet
+            // (ADR-040). `VerifyPayment` moves this to `Paid` when the cash is
+            // recorded. Read from the order's own payment attempt rather than
+            // passed in, so every caller of this action — checkout, the panel,
+            // the webhook — gets the same answer.
+            $changes['payment_status'] = $order->requiresCashOnDelivery()
+                ? PaymentStatus::Pending
+                : PaymentStatus::Paid;
         }
 
         if ($to === OrderStatus::Expired) {
@@ -181,6 +215,21 @@ final class TransitionOrderStatus
         }
 
         return $changes;
+    }
+
+    /**
+     * What to write on an open payment attempt this transition closes.
+     *
+     * The customer reads it, so it says why the ask for money went away: an
+     * attempt closed because the order was cancelled did not run out of time.
+     */
+    private function paymentClosureReason(OrderStatus $to, ?string $note): string
+    {
+        if ($to === OrderStatus::Expired) {
+            return ExpirePayment::DEADLINE_PASSED;
+        }
+
+        return 'Pesanan dibatalkan'.($note === null ? '.' : ": {$note}");
     }
 
     private function releaseWording(OrderStatus $to): string

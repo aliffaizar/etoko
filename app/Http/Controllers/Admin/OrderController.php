@@ -18,9 +18,11 @@ use App\Http\Requests\Admin\UpdateOrderStatusRequest;
 use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Branch;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\User;
 use App\Support\OrderListQuery;
 use App\Support\OrderPresenter;
+use App\Support\PaymentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -89,6 +91,7 @@ class OrderController extends Controller
             'items.product:id,slug',
             'statusHistories.changedBy:id,name',
             'stockReservations' => fn ($q) => $q->with(['warehouse:id,name', 'variant:id,sku'])->orderBy('id'),
+            'payments' => fn ($q) => $q->with(['paymentMethod', 'verifiedBy:id,name']),
         ]);
 
         return Inertia::render('admin/orders/show', [
@@ -109,6 +112,19 @@ class OrderController extends Controller
                 $order->status->allowedTransitions(),
             ),
             'branches' => $actor->can('assignBranch', $order) ? $this->branchOptions($order->branch_id) : [],
+            // The order's payment attempts, newest first, so "has this been
+            // paid for, how, and who said so" is answered on the screen that
+            // asks it rather than on a second one (P2-E1-T4). Each row carries
+            // its own `can.settle`, because whether an attempt may still be
+            // decided depends on the attempt and not only on the actor.
+            'payments' => $actor->can('payments.view')
+                ? $order->payments
+                    ->map(fn (Payment $payment): array => PaymentPresenter::detail($payment, [
+                        'settle' => $actor->can('settle', $payment),
+                    ]))
+                    ->values()
+                    ->all()
+                : [],
         ]);
     }
 

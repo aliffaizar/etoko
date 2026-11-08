@@ -17,6 +17,12 @@ use Illuminate\Validation\Rule;
  * `address_id` is required for a delivery and refused for a pickup. Accepting
  * it for a pickup and ignoring it would let a customer believe they had chosen
  * where it was going.
+ *
+ * `payment_method_id` is required here but **optional** on `PlaceOrder`
+ * (P2-E1-T3). The storefront insists on it because a checkout that leaves the
+ * customer wondering how to pay is not a checkout; the action does not,
+ * because a POS sale and an admin-entered order are paid in their own time and
+ * their payment is a separate record either way.
  */
 class PlaceOrderRequest extends FormRequest
 {
@@ -43,6 +49,7 @@ class PlaceOrderRequest extends FormRequest
                 'integer',
                 'exists:addresses,id',
             ],
+            'payment_method_id' => ['required', 'integer', 'exists:payment_methods,id'],
             'customer_note' => ['nullable', 'string', 'max:500'],
         ];
     }
@@ -55,6 +62,7 @@ class PlaceOrderRequest extends FormRequest
         return [
             'fulfillment_type' => 'cara pemenuhan',
             'address_id' => 'alamat pengiriman',
+            'payment_method_id' => 'metode pembayaran',
             'customer_note' => 'catatan',
         ];
     }
@@ -67,7 +75,14 @@ class PlaceOrderRequest extends FormRequest
         return [
             'address_id.required' => 'Pilih alamat pengiriman terlebih dahulu.',
             'address_id.prohibited' => 'Pesanan ambil sendiri tidak memerlukan alamat pengiriman.',
+            'payment_method_id.required' => 'Pilih metode pembayaran terlebih dahulu.',
+            'payment_method_id.exists' => 'Metode pembayaran itu tidak tersedia.',
         ];
+    }
+
+    public function paymentMethodId(): int
+    {
+        return (int) $this->validated('payment_method_id');
     }
 
     /**

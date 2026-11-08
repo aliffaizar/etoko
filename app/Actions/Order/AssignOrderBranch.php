@@ -117,6 +117,8 @@ final class AssignOrderBranch
 
             $locked->save();
 
+            $this->movePayments($locked, $destination);
+
             OrderStatusHistory::create([
                 'order_id' => $locked->getKey(),
                 'from_status' => $locked->status,
@@ -128,6 +130,25 @@ final class AssignOrderBranch
 
             return $locked;
         });
+    }
+
+    /**
+     * Take the order's payment attempts to the new branch with it (ADR-038).
+     *
+     * `payments.branch_id` is a copy of the order's, kept so the table can be
+     * branch-scoped like every other transactional one. A copy that is not
+     * maintained is worse than no copy: the destination would be unable to see
+     * the attempt it has to verify, and the origin would still be looking at a
+     * payment for an order it no longer serves.
+     *
+     * Only the order's own attempts, inside the same transaction as the move,
+     * so the two can never be observed apart.
+     */
+    private function movePayments(Order $order, Branch $destination): void
+    {
+        foreach ($order->payments()->withoutGlobalScope(BranchScope::class)->get() as $payment) {
+            $payment->update(['branch_id' => $destination->getKey()]);
+        }
     }
 
     /**

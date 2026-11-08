@@ -12,6 +12,7 @@ import {
     Store,
     UserCheck,
     Users,
+    Wallet,
 } from 'lucide-react';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
@@ -24,6 +25,7 @@ import { index as attributesIndex } from '@/routes/admin/product-attributes';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as customersIndex } from '@/routes/admin/customers';
 import { index as ordersIndex } from '@/routes/admin/orders';
+import { index as paymentsIndex } from '@/routes/admin/payments';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import stockEntries from '@/routes/branch/stock-entries';
@@ -114,8 +116,10 @@ const navGroups: PanelNavGroup[] = [
         ],
     },
     {
-        // Orders and the people who place them, together: the first question
-        // asked about a customer is what they have ordered (P1-E7-T8).
+        // Orders, the money they bring in and the people who place them,
+        // together: the first question asked about a customer is what they
+        // have ordered, and the first question asked about an order is whether
+        // it has been paid for (P1-E7-T8, P2-E1-T4).
         label: 'Penjualan',
         items: [
             {
@@ -123,6 +127,12 @@ const navGroups: PanelNavGroup[] = [
                 href: ordersIndex(),
                 icon: ShoppingCart,
                 permission: 'orders.view',
+            },
+            {
+                title: 'Pembayaran',
+                href: paymentsIndex(),
+                icon: Wallet,
+                permission: 'payments.view',
             },
             {
                 title: 'Daftar Pelanggan',

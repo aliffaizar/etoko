@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Actions\Order\PlaceOrder;
 use App\Actions\Order\TransitionOrderStatus;
+use App\Actions\Payment\InitiatePayment;
+use App\Actions\Payment\VerifyPayment;
 use App\Enums\FulfillmentType;
 use App\Enums\OrderStatus;
 use App\Enums\UserRole;
@@ -11,9 +13,12 @@ use App\Models\Address;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\Order;
+use App\Models\PaymentMethod;
 use App\Models\ProductVariant;
 use App\Models\Stock;
 use App\Models\User;
+use App\Services\Payment\Data\PaymentContext;
+use App\Services\Payment\PaymentMethodEligibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -35,9 +40,18 @@ use Illuminate\Support\Facades\DB;
  *   reserved figure and the order detail screen shows a live hold;
  *   its `expires_at` is pushed well out so the expiry sweep does not
  *   immediately cancel the demo data;
- * - one paid and being processed, with its stock already off the shelf;
- * - one completed, for the history and the customer's lifetime total;
- * - one cancelled, with its hold released.
+ * - one COD, confirmed and being processed, with the money still outstanding;
+ * - one completed, paid by transfer and verified, for the history and the
+ *   customer's lifetime total;
+ * - one cancelled, with its hold released and its payment attempt closed.
+ *
+ * **Payments are seeded through the real actions too** (`P2-E1-T1`), for the
+ * same reason as the orders: `/admin/payments` is a queue, and a queue with
+ * nothing in it demonstrates nothing. The four scenarios leave one attempt
+ * awaiting a transfer, one COD awaiting cash, one settled and one expired —
+ * which is every column of the payment screen with something in it. No
+ * receipt file is faked: uploading one means writing to the disk, and a demo
+ * image that looks like a real transfer slip is worse than an empty field.
  *
  * Re-running it is safe: a branch that already has orders is skipped rather
  * than given more. Never run it against a production database.
@@ -58,33 +72,53 @@ class OrderDemoSeeder extends Seeder
      * assigned: `completed` is four moves away, and every one of them has
      * consequences for stock.
      *
-     * @var array<int, array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string}>
+     * `payment` names the method code to open an attempt with, and `settle`
+     * says whether the money is then recorded as received. A settled attempt
+     * is what moves its order to `paid`, so the paths below start from
+     * `processing` rather than repeating that step — walking to `paid` a
+     * second time would be an illegal transition, which is the state machine
+     * correctly refusing to be paid twice.
+     *
+     * @var array<int, array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string, payment: string|null, settle: bool}>
      */
     private const SCENARIOS = [
         [
             'status' => null,
             'fulfillment' => FulfillmentType::Delivery,
             'note' => 'Menunggu pembayaran — stoknya masih ditahan.',
+            'payment' => 'bank-transfer-bca',
+            'settle' => false,
         ],
         [
             'status' => OrderStatus::Processing,
             'fulfillment' => FulfillmentType::Delivery,
-            'note' => 'Sudah dibayar dan sedang disiapkan.',
+            'note' => 'COD — barang disiapkan, uang ditagih saat diantar.',
+            'payment' => 'cod',
+            'settle' => false,
         ],
         [
             'status' => OrderStatus::Completed,
             'fulfillment' => FulfillmentType::Pickup,
             'note' => 'Selesai, diambil sendiri di cabang.',
+            'payment' => 'bank-transfer-bca',
+            'settle' => true,
         ],
         [
             'status' => OrderStatus::Cancelled,
             'fulfillment' => FulfillmentType::Delivery,
             'note' => 'Dibatalkan pelanggan sebelum dibayar.',
+            'payment' => 'bank-transfer-bca',
+            'settle' => false,
         ],
     ];
 
-    public function run(PlaceOrder $placeOrder, TransitionOrderStatus $transition): void
-    {
+    public function run(
+        PlaceOrder $placeOrder,
+        TransitionOrderStatus $transition,
+        InitiatePayment $initiatePayment,
+        VerifyPayment $verifyPayment,
+        PaymentMethodEligibility $eligibility,
+    ): void {
         $customers = $this->customers();
 
         if ($customers->isEmpty()) {
@@ -98,7 +132,15 @@ class OrderDemoSeeder extends Seeder
                 continue;
             }
 
-            $this->seedBranch($branch, $customers, $placeOrder, $transition);
+            $this->seedBranch(
+                $branch,
+                $customers,
+                $placeOrder,
+                $transition,
+                $initiatePayment,
+                $verifyPayment,
+                $eligibility,
+            );
         }
 
         self::extendDemoHolds();
@@ -112,6 +154,9 @@ class OrderDemoSeeder extends Seeder
         Collection $customers,
         PlaceOrder $placeOrder,
         TransitionOrderStatus $transition,
+        InitiatePayment $initiatePayment,
+        VerifyPayment $verifyPayment,
+        PaymentMethodEligibility $eligibility,
     ): void {
         $variants = $this->sellableVariantsAt($branch);
 
@@ -137,7 +182,9 @@ class OrderDemoSeeder extends Seeder
                 continue;
             }
 
-            $this->walkTo($transition, $order, $scenario['status'], $scenario['note']);
+            $this->pay($order, $scenario, $initiatePayment, $verifyPayment, $eligibility);
+
+            $this->walkTo($transition, $order->refresh(), $scenario['status'], $scenario['note']);
         }
     }
 
@@ -198,12 +245,20 @@ class OrderDemoSeeder extends Seeder
             return;
         }
 
+        // `paid` is prepended only when the payment above did not already get
+        // the order there — a settled transfer and a confirmed COD both do
+        // (ADR-040), and asking for the same move twice is an illegal
+        // transition.
+        $prefix = $order->status === OrderStatus::PendingPayment && $target !== OrderStatus::Cancelled
+            ? [OrderStatus::Paid]
+            : [];
+
         $path = match ($target) {
             OrderStatus::Cancelled => [OrderStatus::Cancelled],
-            OrderStatus::Processing => [OrderStatus::Paid, OrderStatus::Processing],
+            OrderStatus::Processing => [...$prefix, OrderStatus::Processing],
             OrderStatus::Completed => $order->fulfillment_type === FulfillmentType::Pickup
-                ? [OrderStatus::Paid, OrderStatus::Processing, OrderStatus::ReadyForPickup, OrderStatus::Completed]
-                : [OrderStatus::Paid, OrderStatus::Processing, OrderStatus::Shipped, OrderStatus::Delivered, OrderStatus::Completed],
+                ? [...$prefix, OrderStatus::Processing, OrderStatus::ReadyForPickup, OrderStatus::Completed]
+                : [...$prefix, OrderStatus::Processing, OrderStatus::Shipped, OrderStatus::Delivered, OrderStatus::Completed],
             default => [$target],
         };
 
@@ -211,6 +266,46 @@ class OrderDemoSeeder extends Seeder
 
         foreach ($path as $step) {
             $order = $transition->handle($order, $step, $actor, $note);
+        }
+    }
+
+    /**
+     * Open the scenario's payment attempt, and settle it when it says to.
+     *
+     * The method is checked for eligibility first and quietly skipped when it
+     * does not apply — a demo branch that does not deliver cannot take COD,
+     * and a demo order above the COD ceiling should not be given one. Better a
+     * seeder that leaves one order unpaid than one that dies on a rule it is
+     * meant to be demonstrating.
+     *
+     * @param  array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string, payment: string|null, settle: bool}  $scenario
+     */
+    private function pay(
+        Order $order,
+        array $scenario,
+        InitiatePayment $initiatePayment,
+        VerifyPayment $verifyPayment,
+        PaymentMethodEligibility $eligibility,
+    ): void {
+        if ($scenario['payment'] === null) {
+            return;
+        }
+
+        $method = PaymentMethod::query()->where('code', $scenario['payment'])->first();
+
+        if (! $method instanceof PaymentMethod
+            || ! $eligibility->allows($method, PaymentContext::forOrder($order))) {
+            return;
+        }
+
+        try {
+            $payment = $initiatePayment->handle($order, $method);
+
+            if ($scenario['settle']) {
+                $verifyPayment->handle($payment, $this->branchStaffOf($order->branch_id));
+            }
+        } catch (\RuntimeException $refused) {
+            $this->command?->warn("OrderDemoSeeder: {$refused->getMessage()}");
         }
     }
 

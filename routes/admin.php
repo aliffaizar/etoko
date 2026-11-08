@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\OrderController;
+use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ProductAttributeController;
 use App\Http\Controllers\Admin\ProductAttributeValueController;
 use App\Http\Controllers\Admin\ProductController;
@@ -365,6 +366,44 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::put('{order}/branch', [OrderController::class, 'assignBranch'])
                 ->middleware('can:orders.assign_branch')
                 ->name('branch.update');
+        });
+
+        /*
+         * The payment queue (P2-E1-T4).
+         *
+         * One set of screens for central and branch staff, like the order
+         * queue: `Payment` carries the branch global scope through a
+         * `branch_id` copied from the order (ADR-038), so a branch account's
+         * queue is already its own and another branch's payment id in the URL
+         * answers 404 before `PaymentPolicy` is consulted (ADR-027).
+         *
+         * Reading and deciding are separated by permission, not by screen: a
+         * cashier holds `payments.view` and sees the queue, while confirming
+         * money or turning a receipt down needs `payments.verify`. All three
+         * writes share that permission because they are the same decision from
+         * different ends, and the matrix in docs/04-rbac.md has no finer
+         * distinction to honour.
+         */
+        Route::prefix('payments')->name('payments.')->group(function () {
+            Route::get('/', [PaymentController::class, 'index'])
+                ->middleware('can:payments.view')
+                ->name('index');
+
+            Route::get('{payment}', [PaymentController::class, 'show'])
+                ->middleware('can:payments.view')
+                ->name('show');
+
+            Route::post('{payment}/verify', [PaymentController::class, 'verify'])
+                ->middleware('can:payments.verify')
+                ->name('verify');
+
+            Route::post('{payment}/reject', [PaymentController::class, 'reject'])
+                ->middleware('can:payments.verify')
+                ->name('reject');
+
+            Route::post('{payment}/expire', [PaymentController::class, 'expire'])
+                ->middleware('can:payments.verify')
+                ->name('expire');
         });
 
         Route::prefix('customers')->name('customers.')->group(function () {

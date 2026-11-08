@@ -20,8 +20,10 @@ class DatabaseSeeder extends Seeder
      * written. Do not reintroduce it — see CRIT-01 in
      * docs/reviews/phase-1-review.md.
      *
-     * RolePermissionSeeder is reference data every environment needs; the four
-     * demo seeders are sample content and are skipped in production.
+     * RolePermissionSeeder and PaymentMethodSeeder are reference data every
+     * environment needs — a shop with no payment methods has a checkout that
+     * cannot be completed — so both run unconditionally. The four demo seeders
+     * are sample content and are skipped in production.
      *
      * The order matters and is a chain of dependencies, not a preference:
      * inventory is received against variants, so the catalogue has to exist
@@ -31,6 +33,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(RolePermissionSeeder::class);
+        $this->call(PaymentMethodSeeder::class);
 
         if (! app()->isProduction()) {
             $this->call(DemoDataSeeder::class);

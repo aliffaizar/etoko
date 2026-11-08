@@ -8,8 +8,13 @@ use App\Exceptions\IllegalOrderTransitionException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Order;
+use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Models\User;
+use App\Services\Payment\Data\PaymentContext;
+use App\Services\Payment\PaymentMethodEligibility;
 use App\Support\OrderPresenter;
+use App\Support\PaymentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,10 +37,17 @@ use Inertia\Response;
  * There is no separate success screen: the detail page shows the whole order
  * already, and `?baru=1` adds the confirmation panel to the top of it. Two
  * screens for one order would be two places to keep the totals right.
+ *
+ * The **payment panel** lives on the same page for the same reason
+ * (`P2-E1-T3`): the instructions, the deadline, the receipt upload and the
+ * option to pay a different way are all about this order, and a customer who
+ * closed a separate payment screen would have nowhere obvious to go back to.
  */
 class OrderController extends Controller
 {
     private const PER_PAGE = 10;
+
+    public function __construct(private readonly PaymentMethodEligibility $eligibility) {}
 
     /**
      * The customer's order history.
@@ -69,13 +81,32 @@ class OrderController extends Controller
             'branch:id,name,city_name,address_line,phone',
             'items.product:id,slug',
             'statusHistories',
+            'payments.paymentMethod',
         ]);
+
+        $openPayment = $order->openPayment();
 
         return Inertia::render('shop/order', [
             'order' => OrderPresenter::detail($order, [
                 'cancel' => $order->cancellationBlockedReason(asCustomer: true) === null,
+                'pay' => $order->isPayable(),
             ]),
             'cancel_blocked_reason' => $order->cancellationBlockedReason(asCustomer: true),
+            'payment_blocked_reason' => $order->paymentBlockedReason(),
+            // The attempt in progress, shown as instructions; and the rest as
+            // history, so a customer can see the virtual account that lapsed
+            // before the transfer they made instead.
+            'payment' => $openPayment instanceof Payment
+                ? PaymentPresenter::forCustomer($openPayment)
+                : null,
+            'payment_history' => $order->payments
+                ->reject(fn (Payment $payment): bool => $payment->is($openPayment))
+                ->map(fn (Payment $payment): array => PaymentPresenter::forCustomer($payment))
+                ->values()
+                ->all(),
+            // Offered whenever the order can still be paid for, so "pay a
+            // different way" after a failed attempt needs no second screen.
+            'payment_methods' => $order->isPayable() ? $this->paymentMethodProps($order) : [],
             // Set by the redirect from checkout, so the confirmation panel
             // appears once rather than every time the order is opened.
             'just_placed' => $request->boolean('baru'),
@@ -119,6 +150,24 @@ class OrderController extends Controller
         ]);
 
         return back();
+    }
+
+    /**
+     * The ways this order may be paid for, each with its verdict (P2-E1-T7).
+     *
+     * Judged against the order itself rather than against a quotation, so this
+     * is the same answer `InitiatePayment` will give: an option offered here
+     * is one that will be accepted.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function paymentMethodProps(Order $order): array
+    {
+        return PaymentPresenter::methodChoices(
+            PaymentMethod::query()->active()->ordered()->get(),
+            PaymentContext::forOrder($order),
+            $this->eligibility,
+        );
     }
 
     /**
