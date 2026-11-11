@@ -162,6 +162,22 @@ class OrderFactory extends Factory
         return $this->status(OrderStatus::Processing);
     }
 
+    /**
+     * A Click & Collect order whose goods are waiting on the shelf, with a
+     * collection code already issued (P2-E2-T7).
+     *
+     * The code is part of the *record*, which is why it belongs in a factory:
+     * `TransitionOrderStatus` issues it on the way into this status, and a row
+     * in this status without one is a state the application never writes. A
+     * test about the issuing drives the transition instead.
+     */
+    public function readyForPickup(string $code = 'K7M2PQ'): static
+    {
+        return $this->pickup()
+            ->status(OrderStatus::ReadyForPickup)
+            ->state(['pickup_code' => $code]);
+    }
+
     public function completed(): static
     {
         return $this->status(OrderStatus::Completed);

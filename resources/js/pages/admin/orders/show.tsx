@@ -15,7 +15,10 @@ import {
 import { useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
 import Heading from '@/components/heading';
+import { ConfirmPickupForm } from '@/components/admin/confirm-pickup-form';
+import { DispatchShipmentForm } from '@/components/admin/dispatch-shipment-form';
 import { PaymentCard } from '@/components/admin/payment-card';
+import { ShipmentCard } from '@/components/admin/shipment-card';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -55,11 +58,17 @@ import {
     type OrderReservationRow,
 } from '@/types/order';
 import type { PaymentDetail } from '@/types/payment';
+import type { CourierServiceChoice, ShipmentDetail } from '@/types/shipping';
 
 type OrderShowProps = {
     order: OrderDetail;
     reservations: OrderReservationRow[];
-    blocked: { cancel: string | null; assign_branch: string | null };
+    blocked: {
+        cancel: string | null;
+        assign_branch: string | null;
+        dispatch: string | null;
+        confirm_pickup: string | null;
+    };
     next_statuses: FilterOption[];
     branches: FilterOption[];
     /**
@@ -67,6 +76,18 @@ type OrderShowProps = {
      * `can.settle` (P2-E1-T4). Empty for an actor without `payments.view`.
      */
     payments: PaymentDetail[];
+    /**
+     * Every dispatch of this order's goods, newest first, each with its own
+     * `can.manage` (P2-E2-T4). Empty for an actor without `shipments.view`.
+     */
+    shipments: ShipmentDetail[];
+    /**
+     * The couriers a packer may dispatch with, priced where the rate table
+     * reaches this address. Empty when the order cannot go out.
+     */
+    courier_services: CourierServiceChoice[];
+    /** The statuses a branch may set on a parcel by hand. */
+    shipment_statuses: FilterOption[];
 };
 
 const RESERVATION_TONE = {
@@ -82,6 +103,9 @@ export default function OrderShow({
     next_statuses: nextStatuses,
     branches,
     payments,
+    shipments,
+    courier_services: courierServices,
+    shipment_statuses: shipmentStatuses,
 }: OrderShowProps) {
     const [cancelling, setCancelling] = useState(false);
     const [moving, setMoving] = useState(false);
@@ -336,6 +360,77 @@ export default function OrderShow({
                                 </CardContent>
                             </Card>
                         )}
+
+                        {order.fulfillment_type === 'pickup'
+                            ? order.can.confirm_pickup && (
+                                  <Card>
+                                      <CardHeader>
+                                          <CardTitle className="flex items-center gap-2 text-base">
+                                              <Store
+                                                  aria-hidden
+                                                  className="size-4"
+                                              />
+                                              Serahkan di cabang
+                                          </CardTitle>
+                                          <CardDescription>
+                                              Barang sudah menunggu di konter.
+                                              Minta kode pengambilan pelanggan
+                                              sebelum menyerahkannya.
+                                          </CardDescription>
+                                      </CardHeader>
+                                      <CardContent>
+                                          <ConfirmPickupForm
+                                              orderId={order.id}
+                                              blockedReason={
+                                                  blocked.confirm_pickup
+                                              }
+                                          />
+                                      </CardContent>
+                                  </Card>
+                              )
+                            : (order.can.dispatch_shipment ||
+                                  shipments.length > 0) && (
+                                  <Card>
+                                      <CardHeader>
+                                          <CardTitle className="flex items-center gap-2 text-base">
+                                              <Truck
+                                                  aria-hidden
+                                                  className="size-4"
+                                              />
+                                              Pengiriman
+                                          </CardTitle>
+                                          <CardDescription>
+                                              Catat kurir dan nomor resinya,
+                                              lalu perbarui posisi paket dari
+                                              sini. Pelanggan melihat
+                                              perubahannya di halaman
+                                              pesanannya.
+                                          </CardDescription>
+                                      </CardHeader>
+                                      <CardContent className="flex flex-col gap-4">
+                                          {order.can.dispatch_shipment && (
+                                              <DispatchShipmentForm
+                                                  orderId={order.id}
+                                                  services={courierServices}
+                                                  blockedReason={
+                                                      blocked.dispatch
+                                                  }
+                                                  chargedShipping={
+                                                      order.totals.shipping_cost
+                                                  }
+                                              />
+                                          )}
+
+                                          {shipments.map((shipment) => (
+                                              <ShipmentCard
+                                                  key={shipment.id}
+                                                  shipment={shipment}
+                                                  statuses={shipmentStatuses}
+                                              />
+                                          ))}
+                                      </CardContent>
+                                  </Card>
+                              )}
 
                         <Card>
                             <CardHeader>

@@ -90,6 +90,7 @@ final class OrderPresenter
                 'placed_at' => $order->placed_at?->toIso8601String(),
                 'paid_at' => $order->paid_at?->toIso8601String(),
                 'processed_at' => $order->processed_at?->toIso8601String(),
+                'ready_at' => $order->ready_at?->toIso8601String(),
                 'shipped_at' => $order->shipped_at?->toIso8601String(),
                 'completed_at' => $order->completed_at?->toIso8601String(),
                 'cancelled_at' => $order->cancelled_at?->toIso8601String(),

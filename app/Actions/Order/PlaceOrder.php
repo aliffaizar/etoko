@@ -2,6 +2,8 @@
 
 namespace App\Actions\Order;
 
+use App\Actions\Shipping\CreateShipment;
+use App\Actions\Shipping\QuoteShipping;
 use App\Enums\BranchStatus;
 use App\Enums\FulfillmentType;
 use App\Enums\OrderChannel;
@@ -9,16 +11,20 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\ShippingFailedException;
 use App\Models\Address;
 use App\Models\Branch;
 use App\Models\BranchProduct;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\CourierService;
 use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Services\Pricing\EffectivePriceResolver;
+use App\Services\Shipping\Data\ShippingQuote;
+use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\DocumentNumber;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -61,17 +67,20 @@ final class PlaceOrder
         private readonly EffectivePriceResolver $priceResolver,
         private readonly ReserveStock $reserveStock,
         private readonly TransitionOrderStatus $transitionOrderStatus,
+        private readonly QuoteShipping $quoteShipping,
+        private readonly CreateShipment $createShipment,
     ) {}
 
     /**
      * Place the cart as an order at the chosen branch.
      *
-     * @param  array{fulfillment_type: FulfillmentType, address_id?: int|null, customer_note?: string|null}  $data
+     * @param  array{fulfillment_type: FulfillmentType, address_id?: int|null, courier_service_id?: int|null, customer_note?: string|null}  $data
      * @param  User|null  $customer  The account the order belongs to; null for a guest.
      * @param  User|null  $actor  Who pressed the button, when that is not the customer (POS, admin).
      *
      * @throws CheckoutFailedException
      * @throws InsufficientStockException
+     * @throws ShippingFailedException
      */
     public function handle(
         Cart $cart,
@@ -92,6 +101,13 @@ final class PlaceOrder
         // told about.
         $lines = $this->priceLines($cart, $branch);
 
+        // Quoted outside the transaction too, and for a sharper reason: a
+        // courier driver may be an HTTP call to an aggregator (`P2-E2-T6`),
+        // and running that inside the transaction would hold the cart's and
+        // the stock's row locks for as long as somebody else's server took to
+        // answer — the same mistake `InitiatePayment` was built to avoid.
+        $quote = $this->quoteDelivery($branch, $address, $fulfillment, $data['courier_service_id'] ?? null, $lines);
+
         // Taken before the transaction opens (MED-06). `DocumentNumber` runs a
         // transaction of its own, which nested inside this one would be a mere
         // savepoint — the counter's row lock would then be held for the whole
@@ -100,12 +116,20 @@ final class PlaceOrder
         // afterwards costs nothing.
         $orderNumber = DocumentNumber::next(DocumentNumber::PREFIX_ORDER);
 
-        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $orderNumber): Order {
+        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $orderNumber, $quote): Order {
             $this->lockCart($cart, count($lines));
 
-            $order = $this->createOrder($orderNumber, $branch, $customer, $actor, $fulfillment, $address, $lines, $data);
+            $order = $this->createOrder($orderNumber, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $quote);
 
             $this->createItems($order, $lines);
+
+            // The courier the customer chose, recorded as part of the order:
+            // `orders.shipping_cost` and the row that explains where that
+            // figure came from have to land together, or the order carries a
+            // delivery charge nobody can account for.
+            if ($quote instanceof ShippingQuote) {
+                $this->createShipment->handle($order, $quote);
+            }
 
             $this->reserveStock->handle(
                 $order,
@@ -214,6 +238,65 @@ final class PlaceOrder
         }
 
         return $address;
+    }
+
+    /**
+     * The courier quote this order's delivery charge comes from, or null when
+     * there is none to make (P2-E2-T3).
+     *
+     * **The browser's number is never trusted** (ADR-042). The checkout form
+     * sends back a `courier_service_id` and nothing else; the cost is worked out here,
+     * against the address the order is really going to and the weight the
+     * basket really is. Accepting a figure from the client would let anybody
+     * ship a wardrobe for a rupiah.
+     *
+     * Null in two cases, and they are not the same:
+     *
+     * - **A pickup.** Nothing is being sent, so there is no charge and no
+     *   parcel.
+     * - **A delivery with no service named.** That is a POS sale or an
+     *   admin-entered order whose delivery the shop arranges by hand, and the
+     *   flat charge in `config/shop.php` is what it bills for it. The
+     *   storefront never takes this path: `PlaceOrderRequest` insists on a
+     *   service for a delivery, because a shopper who was never asked which
+     *   courier to use has not finished checking out. An order that lands here
+     *   gets no `shipments` row, and `DispatchShipment` opens one when the
+     *   branch says which courier it actually used.
+     *
+     * @param  array<int, array{variant: ProductVariant, quantity: int, unit_price: int, subtotal: int, weight_gram: int}>  $lines
+     *
+     * @throws ShippingFailedException
+     */
+    private function quoteDelivery(
+        Branch $branch,
+        ?Address $address,
+        FulfillmentType $fulfillment,
+        ?int $courierServiceId,
+        array $lines,
+    ): ?ShippingQuote {
+        if (! $fulfillment->requiresShipping() || $courierServiceId === null) {
+            return null;
+        }
+
+        if (! $address instanceof Address) {
+            throw ShippingFailedException::destinationMissing();
+        }
+
+        $service = CourierService::query()->with('courier')->find($courierServiceId);
+
+        if (! $service instanceof CourierService) {
+            throw ShippingFailedException::destinationMissing();
+        }
+
+        return $this->quoteShipping->forService(
+            $service,
+            ShippingQuoteRequest::forAddress(
+                origin: $branch,
+                address: $address,
+                weightGram: self::weightOf($lines),
+                itemValue: array_sum(array_column($lines, 'subtotal')),
+            ),
+        );
     }
 
     /**
@@ -349,7 +432,7 @@ final class PlaceOrder
 
     /**
      * @param  array<int, array{variant: ProductVariant, quantity: int, unit_price: int, subtotal: int, weight_gram: int}>  $lines
-     * @param  array{fulfillment_type: FulfillmentType, address_id?: int|null, customer_note?: string|null}  $data
+     * @param  array{fulfillment_type: FulfillmentType, address_id?: int|null, courier_service_id?: int|null, customer_note?: string|null}  $data
      */
     private function createOrder(
         string $orderNumber,
@@ -360,14 +443,12 @@ final class PlaceOrder
         ?Address $address,
         array $lines,
         array $data,
+        ?ShippingQuote $quote = null,
     ): Order {
         $subtotal = array_sum(array_column($lines, 'subtotal'));
-        $weight = array_sum(array_map(
-            fn (array $line): int => $line['weight_gram'] * $line['quantity'],
-            $lines,
-        ));
+        $weight = self::weightOf($lines);
 
-        $shipping = $fulfillment->requiresShipping() ? self::flatShippingCost() : 0;
+        $shipping = $this->shippingCostFor($fulfillment, $quote);
         $tax = (int) round($subtotal * self::taxPercent() / 100);
 
         return Order::create([
@@ -474,7 +555,43 @@ final class PlaceOrder
     }
 
     /**
-     * The single flat delivery charge, until courier rates arrive (`P2-E2-T6`).
+     * What this order is charged for delivery.
+     *
+     * Three answers, in the order they are decided: a pickup pays nothing
+     * because nothing is sent, a chosen courier service pays what it quoted,
+     * and a delivery arranged by hand pays the flat charge.
+     */
+    private function shippingCostFor(FulfillmentType $fulfillment, ?ShippingQuote $quote): int
+    {
+        if (! $fulfillment->requiresShipping()) {
+            return 0;
+        }
+
+        return $quote instanceof ShippingQuote ? $quote->cost : self::flatShippingCost();
+    }
+
+    /**
+     * The whole basket's weight in grams.
+     *
+     * @param  array<int, array{variant: ProductVariant, quantity: int, unit_price: int, subtotal: int, weight_gram: int}>  $lines
+     */
+    private static function weightOf(array $lines): int
+    {
+        return array_sum(array_map(
+            fn (array $line): int => $line['weight_gram'] * $line['quantity'],
+            $lines,
+        ));
+    }
+
+    /**
+     * The flat delivery charge, for a delivery with no courier chosen.
+     *
+     * Still here after `P2-E2-T3`, and no longer the usual case: the
+     * storefront always names a courier service, so this covers the orders
+     * whose delivery the shop arranges itself — a POS sale taken at the
+     * counter, an order typed in by an admin. Deliberately one number rather
+     * than a guess at a rate: a made-up table reads as real and would be
+     * trusted.
      */
     public static function flatShippingCost(): int
     {

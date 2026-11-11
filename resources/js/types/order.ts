@@ -139,6 +139,8 @@ export type OrderMoments = {
     placed_at: string | null;
     paid_at: string | null;
     processed_at: string | null;
+    /** When a Click & Collect order's goods started waiting (P2-E2-T7). */
+    ready_at: string | null;
     shipped_at: string | null;
     completed_at: string | null;
     cancelled_at: string | null;
@@ -163,6 +165,10 @@ export type OrderDetail = OrderRow & {
         assign_branch?: boolean;
         /** Whether the customer may still start or retry a payment (P2-E1-T3). */
         pay?: boolean;
+        /** Whether the goods may be handed to a courier now (P2-E2-T4). */
+        dispatch_shipment?: boolean;
+        /** Whether a Click & Collect order may be handed over (P2-E2-T7). */
+        confirm_pickup?: boolean;
     };
 };
 

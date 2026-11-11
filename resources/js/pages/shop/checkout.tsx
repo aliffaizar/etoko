@@ -1,4 +1,4 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
 import {
     AlertTriangle,
     Clock,
@@ -10,8 +10,9 @@ import {
     Truck,
     Wallet,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PaymentMethodPicker } from '@/components/shop/payment-method-picker';
+import { ShippingOptionPicker } from '@/components/shop/shipping-option-picker';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ import checkout from '@/routes/shop/checkout';
 import { index as cartIndex } from '@/routes/shop/cart';
 import type { FulfillmentType } from '@/types/order';
 import type { CheckoutPaymentMethods } from '@/types/payment';
+import type { CheckoutShipping } from '@/types/shipping';
 
 type CheckoutItem = {
     id: number;
@@ -71,6 +73,13 @@ type CheckoutProps = {
     addresses: CheckoutAddress[];
     costs: { flat_shipping_cost: number; tax_percent: number };
     /**
+     * The couriers that will carry this cart to the chosen address, quoted
+     * server-side (P2-E2-T3). Reloaded on its own when the address changes,
+     * because a courier's price depends on where the parcel is going and
+     * nothing else on this screen does.
+     */
+    shipping: CheckoutShipping;
+    /**
      * Quoted for both ways of receiving the goods, because the customer has
      * not chosen one yet and COD depends on it (P2-E1-T7).
      */
@@ -81,6 +90,7 @@ type CheckoutProps = {
 type CheckoutForm = {
     fulfillment_type: FulfillmentType;
     address_id: number | null;
+    courier_service_id: number | null;
     payment_method_id: number | null;
     customer_note: string;
     [key: string]: FulfillmentType | number | null | string;
@@ -93,6 +103,7 @@ export default function Checkout({
     branch,
     addresses,
     costs,
+    shipping,
     payment_methods: paymentMethods,
     reservation_minutes: reservationMinutes,
 }: CheckoutProps) {
@@ -105,10 +116,17 @@ export default function Checkout({
         paymentMethods[fulfillment].find((method) => method.is_eligible)?.id ??
         null;
 
+    /** The cheapest courier on offer, which is the one to pre-select. */
+    const cheapestOption = shipping.options[0] ?? null;
+
     const form = useForm<CheckoutForm>({
         fulfillment_type: firstOption,
         address_id:
             firstOption === 'delivery' ? (defaultAddress?.id ?? null) : null,
+        courier_service_id:
+            firstOption === 'delivery'
+                ? (cheapestOption?.courier_service_id ?? null)
+                : null,
         payment_method_id: firstEligible(firstOption),
         customer_note: '',
     });
@@ -118,7 +136,25 @@ export default function Checkout({
     );
 
     const isPickup = form.data.fulfillment_type === 'pickup';
-    const shippingCost = isPickup ? 0 : costs.flat_shipping_cost;
+
+    const selectedOption =
+        shipping.options.find(
+            (option) =>
+                option.courier_service_id === form.data.courier_service_id,
+        ) ?? null;
+
+    /**
+     * The delivery charge is the chosen courier's own quote.
+     *
+     * Nothing is charged for a pickup, and an address nobody serves shows the
+     * flat figure the shop falls back to — the same one `PlaceOrder` would
+     * bill for a delivery arranged by hand. Either way the figure here is one
+     * the server produced; the browser never sends a price back.
+     */
+    const shippingCost = isPickup
+        ? 0
+        : (selectedOption?.cost ?? costs.flat_shipping_cost);
+
     const tax = Math.round((cart.subtotal * costs.tax_percent) / 100);
     const orderTotal = cart.subtotal + shippingCost + tax;
 
@@ -127,6 +163,28 @@ export default function Checkout({
         (method) => method.id === form.data.payment_method_id,
     );
     const paymentFee = selectedMethod?.fee_amount ?? 0;
+
+    /**
+     * Keep the courier selection on an option that still exists.
+     *
+     * The options are re-quoted when the address changes, and the service that
+     * was selected may not be among the new ones — a courier that reaches one
+     * city need not reach another. Falling back to the cheapest leaves the
+     * screen with a price beside the button rather than an empty selection the
+     * server would refuse.
+     */
+    useEffect(() => {
+        if (isPickup || selectedOption !== null) {
+            return;
+        }
+
+        if (cheapestOption !== null) {
+            form.setData(
+                'courier_service_id',
+                cheapestOption.courier_service_id,
+            );
+        }
+    }, [isPickup, selectedOption, cheapestOption, form]);
 
     /**
      * Switching how the goods arrive re-decides how they can be paid for: COD
@@ -146,9 +204,41 @@ export default function Checkout({
             fulfillment_type: value,
             address_id:
                 value === 'pickup' ? null : (defaultAddress?.id ?? null),
+            // Nothing is sent on a pickup, so there is no courier to choose;
+            // switching back picks the cheapest again.
+            courier_service_id:
+                value === 'pickup'
+                    ? null
+                    : (cheapestOption?.courier_service_id ?? null),
             payment_method_id: stillEligible
                 ? form.data.payment_method_id
                 : firstEligible(value),
+        });
+    };
+
+    /**
+     * Switching address re-quotes the couriers, because the price depends on
+     * where the parcel is going.
+     *
+     * A partial reload of `shipping` and `payment_methods` only: the cart, the
+     * address list and the branch have not changed, and re-rendering them
+     * would throw away what the customer has typed in the note field. The
+     * chosen courier is cleared rather than kept — a service priced for one
+     * city is not the same offer in another, and `PlaceOrder` would re-quote
+     * it anyway.
+     */
+    const chooseAddress = (addressId: number) => {
+        form.setData({
+            ...form.data,
+            address_id: addressId,
+            // Cleared so no stale price is shown while the new quotes land;
+            // the effect above picks the cheapest of whatever comes back.
+            courier_service_id: null,
+        });
+
+        router.reload({
+            data: { alamat: addressId },
+            only: ['shipping', 'payment_methods'],
         });
     };
 
@@ -251,7 +341,9 @@ export default function Checkout({
                                                 <span className="block text-xs text-muted-foreground">
                                                     {option.value === 'pickup'
                                                         ? `Ambil di ${branch.name}, tanpa biaya kirim`
-                                                        : `Ongkos kirim ${formatRupiah(costs.flat_shipping_cost)}`}
+                                                        : cheapestOption
+                                                          ? `Ongkos kirim mulai ${formatRupiah(cheapestOption.cost)}`
+                                                          : 'Pilih alamat untuk melihat ongkos kirim'}
                                                 </span>
                                             </span>
                                         </button>
@@ -333,8 +425,7 @@ export default function Checkout({
                                                             address.id
                                                         }
                                                         onChange={() =>
-                                                            form.setData(
-                                                                'address_id',
+                                                            chooseAddress(
                                                                 address.id,
                                                             )
                                                         }
@@ -378,6 +469,33 @@ export default function Checkout({
                                         {form.errors.address_id}
                                     </p>
                                 )}
+                            </section>
+                        )}
+
+                        {!isPickup && (
+                            <section className="rounded-lg border p-4">
+                                <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                                    <Truck aria-hidden className="size-4" />
+                                    Kurir & ongkos kirim
+                                </h2>
+                                <p className="mb-3 text-xs text-muted-foreground">
+                                    Ongkos kirim dihitung dari berat pesanan (
+                                    {formatWeight(cart.total_weight_gram)}) dan
+                                    alamat tujuan.
+                                </p>
+
+                                <ShippingOptionPicker
+                                    options={shipping.options}
+                                    unavailableReason={
+                                        shipping.unavailable_reason
+                                    }
+                                    selectedId={form.data.courier_service_id}
+                                    onSelect={(id) =>
+                                        form.setData('courier_service_id', id)
+                                    }
+                                    hasAddress={form.data.address_id !== null}
+                                    error={form.errors.courier_service_id}
+                                />
                             </section>
                         )}
 
@@ -494,7 +612,9 @@ export default function Checkout({
                             </div>
                             <div className="flex justify-between gap-4">
                                 <dt className="text-muted-foreground">
-                                    Ongkos kirim
+                                    {isPickup || selectedOption === null
+                                        ? 'Ongkos kirim'
+                                        : `Ongkos kirim · ${selectedOption.display_name}`}
                                 </dt>
                                 <dd className="tabular-nums">
                                     {isPickup
@@ -548,7 +668,11 @@ export default function Checkout({
                                 form.processing ||
                                 needsAddress ||
                                 shortLines.length > 0 ||
-                                form.data.payment_method_id === null
+                                form.data.payment_method_id === null ||
+                                // A delivery with no courier chosen is a
+                                // checkout the server will refuse.
+                                (!isPickup &&
+                                    form.data.courier_service_id === null)
                             }
                         >
                             {form.processing ? 'Memproses…' : 'Buat Pesanan'}

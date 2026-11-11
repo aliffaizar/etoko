@@ -4,25 +4,32 @@ namespace App\Http\Controllers\Admin;
 
 use App\Actions\Order\AssignOrderBranch;
 use App\Actions\Order\TransitionOrderStatus;
+use App\Actions\Shipping\QuoteShipping;
 use App\Enums\FulfillmentType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\ShipmentStatus;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\ReservationMissingException;
+use App\Exceptions\ShippingFailedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AssignOrderBranchRequest;
 use App\Http\Requests\Admin\IndexOrderRequest;
 use App\Http\Requests\Admin\UpdateOrderStatusRequest;
 use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Branch;
+use App\Models\CourierService;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\Shipment;
 use App\Models\User;
+use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\OrderListQuery;
 use App\Support\OrderPresenter;
 use App\Support\PaymentPresenter;
+use App\Support\ShipmentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -48,6 +55,8 @@ use Inertia\Response;
 class OrderController extends Controller
 {
     private const PER_PAGE = 20;
+
+    public function __construct(private readonly QuoteShipping $quoteShipping) {}
 
     public function index(IndexOrderRequest $request): Response
     {
@@ -92,6 +101,12 @@ class OrderController extends Controller
             'statusHistories.changedBy:id,name',
             'stockReservations' => fn ($q) => $q->with(['warehouse:id,name', 'variant:id,sku'])->orderBy('id'),
             'payments' => fn ($q) => $q->with(['paymentMethod', 'verifiedBy:id,name']),
+            // The order's dispatches, newest first, each with the timeline the
+            // customer is reading (P2-E2-T4). `courier` is loaded because the
+            // card offers the courier's own tracking link and asks whether the
+            // parcel can be tracked automatically — both read the live row,
+            // not the snapshot.
+            'shipments' => fn ($q) => $q->with(['trackingEvents', 'courier', 'dispatchedBy:id,name']),
         ]);
 
         return Inertia::render('admin/orders/show', [
@@ -99,11 +114,17 @@ class OrderController extends Controller
                 'update_status' => $actor->can('updateStatus', $order),
                 'cancel' => $actor->can('cancel', $order),
                 'assign_branch' => $actor->can('assignBranch', $order),
+                'dispatch_shipment' => $actor->can('dispatchShipment', $order),
+                'confirm_pickup' => $actor->can('confirmPickup', $order),
             ]),
             'reservations' => OrderPresenter::reservations($order->stockReservations),
             'blocked' => [
                 'cancel' => $order->cancellationBlockedReason(asCustomer: false),
                 'assign_branch' => $order->branchReassignmentBlockedReason(),
+                // The same sentences the endpoints refuse with, so the screen
+                // explains a disabled form rather than hiding it (P2-E2-T4, T7).
+                'dispatch' => $order->dispatchBlockedReason(),
+                'confirm_pickup' => $order->pickupConfirmationBlockedReason(),
             ],
             // Only the moves this order can actually make, so the screen offers
             // nothing the state machine would refuse.
@@ -125,7 +146,65 @@ class OrderController extends Controller
                     ->values()
                     ->all()
                 : [],
+            // How the goods are going out, and how far they have got
+            // (P2-E2-T4, T5). Each dispatch carries its own `can.manage`,
+            // because a parcel that has already been delivered may be read by
+            // somebody who may no longer move it.
+            'shipments' => $actor->can('shipments.view')
+                ? $order->shipments
+                    ->map(fn (Shipment $shipment): array => ShipmentPresenter::detail($shipment, [
+                        'manage' => $actor->can('manage', $shipment),
+                    ]))
+                    ->values()
+                    ->all()
+                : [],
+            // The couriers a packer may choose from, priced where the rate
+            // table reaches this address. Offered only while the order is
+            // actually dispatchable, so the screen does not draw a form the
+            // server would refuse.
+            'courier_services' => $actor->can('dispatchShipment', $order)
+                ? $this->courierServiceChoices($order)
+                : [],
+            'shipment_statuses' => array_map(
+                fn (ShipmentStatus $status): array => ['value' => $status->value, 'label' => $status->label()],
+                ShipmentStatus::manualTransitions(),
+            ),
         ]);
+    }
+
+    /**
+     * The couriers the dispatch form offers, with a price where there is one
+     * (P2-E2-T4).
+     *
+     * Quoted against the order's own address and weight, through the same
+     * action the checkout screen used, so the figure beside a service is the
+     * one the shop would have charged for it. A quote that fails outright —
+     * every provider down, or no rule reaching the address — is **not** an
+     * error here: the services are still listed, without prices, because the
+     * goods are in somebody's hands and have to go out either way.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function courierServiceChoices(Order $order): array
+    {
+        $services = CourierService::query()
+            ->with('courier')
+            ->active()
+            ->whereHas('courier', fn ($query) => $query->where('is_active', true))
+            ->ordered()
+            ->get();
+
+        if ($services->isEmpty()) {
+            return [];
+        }
+
+        try {
+            $quotes = $this->quoteShipping->handle(ShippingQuoteRequest::forOrder($order));
+        } catch (ShippingFailedException) {
+            $quotes = [];
+        }
+
+        return ShipmentPresenter::serviceChoices($services, $quotes);
     }
 
     /**

@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\ProductImageController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\ProductVariantController;
 use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -366,6 +367,50 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::put('{order}/branch', [OrderController::class, 'assignBranch'])
                 ->middleware('can:orders.assign_branch')
                 ->name('branch.update');
+
+            /*
+             * Sending the goods out (P2-E2-T4, T7).
+             *
+             * Nested under the order rather than under a shipment of their
+             * own, because at this point there may be no shipment: an order
+             * whose delivery was arranged by hand has no `shipments` row until
+             * the branch says which courier it used, and a Click & Collect
+             * order never has one at all.
+             *
+             * Both carry `shipments.manage` rather than an `orders.*`
+             * permission — handing goods over is the shipping decision, and
+             * the matrix in docs/04-rbac.md puts it there. `OrderPolicy` is
+             * the second line, and it also asks the *order* whether it is
+             * ready, so a button is never offered for something the server
+             * will refuse.
+             */
+            Route::post('{order}/kirim', [ShipmentController::class, 'dispatch'])
+                ->middleware('can:shipments.manage')
+                ->name('shipments.dispatch');
+
+            Route::post('{order}/ambil', [ShipmentController::class, 'confirmPickup'])
+                ->middleware('can:shipments.manage')
+                ->name('pickup.confirm');
+        });
+
+        /*
+         * One parcel, once it exists (P2-E2-T4, T6).
+         *
+         * No listing and no detail screen: both writes are made from the
+         * order's own page, where somebody is standing when they decide to
+         * send it. `Shipment` carries the branch global scope through a
+         * `branch_id` copied from the order (ADR-038), so another branch's
+         * shipment id answers 404 before `ShipmentPolicy` is consulted
+         * (ADR-027).
+         */
+        Route::prefix('shipments')->name('shipments.')->group(function () {
+            Route::put('{shipment}/status', [ShipmentController::class, 'updateStatus'])
+                ->middleware('can:shipments.manage')
+                ->name('status.update');
+
+            Route::post('{shipment}/lacak', [ShipmentController::class, 'refreshTracking'])
+                ->middleware('can:shipments.manage')
+                ->name('tracking.refresh');
         });
 
         /*

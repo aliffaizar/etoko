@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\ExpireStockReservations;
+use App\Jobs\SyncShipmentTracking;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -30,3 +31,17 @@ Schedule::job(new ExpireStockReservations)
     ->everyMinute()
     ->withoutOverlapping()
     ->name('expire-stock-reservations');
+
+/*
+ * Every ten minutes, not every minute, and the difference is what is at stake
+ * (P2-E2-T6). An expired stock hold keeps goods off the shelf, so a minute of
+ * lag there costs sales; a courier scan that lands ten minutes late costs
+ * nothing, and every run spends somebody else's rate limit.
+ *
+ * Only parcels a provider can answer about are asked (`Shipment::isTrackable()`),
+ * so a shop running entirely on the manual driver does no work here at all.
+ */
+Schedule::job(new SyncShipmentTracking)
+    ->everyTenMinutes()
+    ->withoutOverlapping()
+    ->name('sync-shipment-tracking');

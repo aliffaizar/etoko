@@ -15,7 +15,7 @@ use App\Models\User;
  * branch's order id in the URL answers 404 before this policy is consulted at
  * all — the refusals here are the second line, not the first.
  *
- * Two of the five are deliberately narrower than "has the permission":
+ * Four of the seven are deliberately narrower than "has the permission":
  *
  * - **`assignBranch` is central only.** Choosing which branch serves a
  *   customer is a company decision; a branch admin who could hand work to a
@@ -24,6 +24,11 @@ use App\Models\User;
  * - **`cancel` also asks the order.** A status that cannot reach `cancelled`
  *   is not cancellable by anybody, which `Order::cancellationBlockedReason()`
  *   answers for both this policy and the endpoint.
+ * - **`dispatchShipment` and `confirmPickup` ask the order too**, and are
+ *   gated on `shipments.manage` rather than an `orders.*` permission (P2-E2).
+ *   They sit here rather than on `ShipmentPolicy` because an order whose
+ *   delivery was arranged by hand has no parcel to authorise against until the
+ *   branch says which courier it used.
  *
  * A customer's own orders are **not** governed here: a shopper holds no
  * `orders.*` permission, and their own history is scoped by `user_id` in
@@ -76,6 +81,42 @@ class OrderPolicy
         return $user->isCentral()
             && $user->can('orders.assign_branch')
             && $order->branchReassignmentBlockedReason() === null;
+    }
+
+    /**
+     * Handing the order's goods to a courier (P2-E2-T4).
+     *
+     * Gated on `shipments.manage` rather than on an `orders.*` permission,
+     * because that is the decision being taken and the matrix says so
+     * (docs/04-rbac.md, "Pengiriman & resi"). It lives on this policy rather
+     * than on `ShipmentPolicy` because at this point there may be no parcel to
+     * authorise against: an order whose delivery was arranged by hand has no
+     * `shipments` row until the branch says which courier it used.
+     *
+     * Also asks the order, through `Order::dispatchBlockedReason()`, so the
+     * same sentence answers for this policy and for the endpoint and a button
+     * is never offered for something the server will refuse.
+     */
+    public function dispatchShipment(User $user, Order $order): bool
+    {
+        return $user->can('shipments.manage')
+            && $this->isWithinReach($user, $order)
+            && $order->dispatchBlockedReason() === null;
+    }
+
+    /**
+     * Handing a Click & Collect order over at the counter (P2-E2-T7).
+     *
+     * The same decision as a dispatch — the goods leaving the branch — taken
+     * at the till instead of the courier's counter, so it shares the
+     * permission: somebody who may not record a waybill may not give the
+     * parcel away either.
+     */
+    public function confirmPickup(User $user, Order $order): bool
+    {
+        return $user->can('shipments.manage')
+            && $this->isWithinReach($user, $order)
+            && $order->pickupConfirmationBlockedReason() === null;
     }
 
     /**

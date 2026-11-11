@@ -66,11 +66,13 @@ use Illuminate\Support\Carbon;
  * @property int $total_weight_gram
  * @property int|null $voucher_id
  * @property string|null $voucher_code
+ * @property string|null $pickup_code
  * @property string|null $customer_note
  * @property string|null $internal_note
  * @property Carbon|null $placed_at
  * @property Carbon|null $paid_at
  * @property Carbon|null $processed_at
+ * @property Carbon|null $ready_at
  * @property Carbon|null $shipped_at
  * @property Carbon|null $completed_at
  * @property Carbon|null $cancelled_at
@@ -86,6 +88,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, OrderStatusHistory> $statusHistories
  * @property-read Collection<int, StockReservation> $stockReservations
  * @property-read Collection<int, Payment> $payments
+ * @property-read Collection<int, Shipment> $shipments
  */
 #[Fillable([
     'order_number', 'user_id', 'branch_id', 'channel', 'fulfillment_type',
@@ -95,9 +98,9 @@ use Illuminate\Support\Carbon;
     'shipping_district_name', 'shipping_city_name', 'shipping_province_name',
     'shipping_postal_code', 'shipping_latitude', 'shipping_longitude',
     'subtotal', 'discount_total', 'shipping_cost', 'tax_total', 'grand_total',
-    'total_weight_gram', 'voucher_id', 'voucher_code',
+    'total_weight_gram', 'voucher_id', 'voucher_code', 'pickup_code',
     'customer_note', 'internal_note',
-    'placed_at', 'paid_at', 'processed_at', 'shipped_at', 'completed_at',
+    'placed_at', 'paid_at', 'processed_at', 'ready_at', 'shipped_at', 'completed_at',
     'cancelled_at', 'cancel_reason', 'created_by',
 ])]
 class Order extends Model
@@ -124,6 +127,7 @@ class Order extends Model
             'placed_at' => 'datetime',
             'paid_at' => 'datetime',
             'processed_at' => 'datetime',
+            'ready_at' => 'datetime',
             'shipped_at' => 'datetime',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
@@ -185,6 +189,148 @@ class Order extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class)->orderByDesc('id');
+    }
+
+    /**
+     * Every dispatch of this order's goods, newest first (P2-E2-T1).
+     *
+     * Newest first because that is the one every screen is about: the parcel
+     * on its way, or the one that just came back. The older rows are history,
+     * and keeping them is what makes "this was sent twice" visible.
+     *
+     * @return HasMany<Shipment, $this>
+     */
+    public function shipments(): HasMany
+    {
+        return $this->hasMany(Shipment::class)->orderByDesc('id');
+    }
+
+    /**
+     * The dispatch still in play, or null when there is none.
+     *
+     * At most one can exist: `CreateShipment` refuses to open a second while
+     * one is still moving, so an order never has two parcels nobody can tell
+     * apart. A returned parcel leaves none, which is exactly what makes
+     * re-sending it possible.
+     *
+     * Reads a loaded `shipments` relation when the caller has one, so a
+     * listing costs no query per row.
+     */
+    public function activeShipment(): ?Shipment
+    {
+        if ($this->relationLoaded('shipments')) {
+            return $this->shipments->first(fn (Shipment $shipment): bool => $shipment->isOpen());
+        }
+
+        return $this->shipments()->open()->first();
+    }
+
+    /**
+     * Whether this order's goods are collected at the branch (P2-E2-T7).
+     */
+    public function isPickup(): bool
+    {
+        return $this->fulfillment_type === FulfillmentType::Pickup;
+    }
+
+    /**
+     * Whether this order needs a courier at all.
+     */
+    public function requiresShipping(): bool
+    {
+        return $this->fulfillment_type->requiresShipping();
+    }
+
+    /**
+     * Why this order's goods may not be handed to a courier, or null when they
+     * may be (P2-E2-T4).
+     *
+     * One source for `DispatchShipment`'s refusal and for the `can.dispatch`
+     * flag the panel reads, so a button is never offered for something the
+     * server will turn down.
+     *
+     * The order has to be *being worked on*, not merely paid for: an order
+     * still in `paid` has not been picked, and a waybill against unpicked
+     * goods is a parcel somebody has to go and find.
+     */
+    public function dispatchBlockedReason(): ?string
+    {
+        if (! $this->requiresShipping()) {
+            return 'Pesanan ini diambil sendiri di cabang, jadi tidak ada pengiriman untuk dicatat.';
+        }
+
+        if ($this->status === OrderStatus::Shipped) {
+            return 'Pesanan ini sudah dikirim. Perbarui statusnya dari kartu pengiriman.';
+        }
+
+        if ($this->status !== OrderStatus::Processing) {
+            return "Pesanan berstatus \"{$this->status->label()}\" belum siap dikirim. "
+                .'Pindahkan ke "Diproses" terlebih dahulu.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Why this order may not be marked as collected, or null when it may be
+     * (P2-E2-T7).
+     */
+    public function pickupConfirmationBlockedReason(): ?string
+    {
+        if (! $this->isPickup()) {
+            return 'Pesanan ini dikirim ke alamat pelanggan, bukan diambil di cabang.';
+        }
+
+        if ($this->status !== OrderStatus::ReadyForPickup) {
+            return "Pesanan berstatus \"{$this->status->label()}\" belum menunggu diambil.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether `$code` is the code issued for this order (P2-E2-T7).
+     *
+     * Compared case-insensitively and trimmed, because it is read off a phone
+     * screen and typed in by somebody at a counter. Compared with
+     * `hash_equals` because it is the one thing standing between a stranger
+     * and somebody else's parcel, and a short-circuiting comparison on a
+     * ten-character secret is a timing oracle for exactly that.
+     *
+     * An order with no code refuses every code rather than accepting any: a
+     * null `pickup_code` means the goods are not waiting yet.
+     */
+    public function matchesPickupCode(string $code): bool
+    {
+        if ($this->pickup_code === null) {
+            return false;
+        }
+
+        return hash_equals(
+            mb_strtoupper($this->pickup_code),
+            mb_strtoupper(trim($code)),
+        );
+    }
+
+    /**
+     * A fresh collection code.
+     *
+     * Six characters from an alphabet with no `0`/`O` or `1`/`I` in it,
+     * because it is read aloud over a counter and those are the pairs people
+     * get wrong. Not unique across the table and deliberately not treated as
+     * an identifier — `ConfirmOrderPickup` checks it against *this* order,
+     * which is what keeps six characters enough.
+     */
+    public static function newPickupCode(): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $code = '';
+
+        for ($index = 0; $index < 6; $index++) {
+            $code .= $alphabet[random_int(0, mb_strlen($alphabet) - 1)];
+        }
+
+        return $code;
     }
 
     /**
@@ -380,6 +526,7 @@ class Order extends Model
         return match ($status) {
             OrderStatus::Paid => 'paid_at',
             OrderStatus::Processing => 'processed_at',
+            OrderStatus::ReadyForPickup => 'ready_at',
             OrderStatus::Shipped => 'shipped_at',
             OrderStatus::Completed => 'completed_at',
             OrderStatus::Cancelled, OrderStatus::Expired => 'cancelled_at',

@@ -10,11 +10,13 @@ use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
+use App\Models\Shipment;
 use App\Models\User;
 use App\Services\Payment\Data\PaymentContext;
 use App\Services\Payment\PaymentMethodEligibility;
 use App\Support\OrderPresenter;
 use App\Support\PaymentPresenter;
+use App\Support\ShipmentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -82,6 +84,10 @@ class OrderController extends Controller
             'items.product:id,slug',
             'statusHistories',
             'payments.paymentMethod',
+            // The parcel and what the courier has said about it (P2-E2-T5).
+            // `courier` is loaded for the courier's own tracking link, which
+            // is the live row rather than the snapshot the parcel carries.
+            'shipments' => fn ($query) => $query->with(['trackingEvents', 'courier']),
         ]);
 
         $openPayment = $order->openPayment();
@@ -107,6 +113,23 @@ class OrderController extends Controller
             // Offered whenever the order can still be paid for, so "pay a
             // different way" after a failed attempt needs no second screen.
             'payment_methods' => $order->isPayable() ? $this->paymentMethodProps($order) : [],
+            // Where the parcel is, as a timeline (P2-E2-T5). Deliberately
+            // narrower than the panel's view: the aggregator's booking id, who
+            // packed it and when a provider was last asked are the shop's own
+            // workings. Every dispatch is sent, not just the live one, so a
+            // parcel that came back and was re-sent reads as the two journeys
+            // it was.
+            'shipments' => $order->shipments
+                ->map(fn (Shipment $shipment): array => ShipmentPresenter::forCustomer($shipment))
+                ->values()
+                ->all(),
+            // Shown only while the goods are actually waiting on the shelf
+            // (P2-E2-T7). The code is the customer's own — it is what they
+            // read out at the counter — and it exists on no other screen:
+            // staff confirming a handover type what the customer shows them.
+            'pickup_code' => $order->status === OrderStatus::ReadyForPickup
+                ? $order->pickup_code
+                : null,
             // Set by the redirect from checkout, so the confirmation panel
             // appears once rather than every time the order is opened.
             'just_placed' => $request->boolean('baru'),

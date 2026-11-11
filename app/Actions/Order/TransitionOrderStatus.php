@@ -11,6 +11,7 @@ use App\Exceptions\ReservationMissingException;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\User;
+use App\Notifications\OrderReadyForPickupNotification;
 use App\Scopes\BranchScope;
 use Illuminate\Support\Facades\DB;
 
@@ -43,9 +44,17 @@ use Illuminate\Support\Facades\DB;
  * at the same moment then queue: the second finds the order already past that
  * point and is refused, instead of writing the same transition twice.
  *
- * Customer-facing notifications are deliberately not here yet — the storefront
- * has no notification feed until Phase 2. This is the one place they will hook
- * into when it does.
+ * 6. **Click & Collect issues its code** (P2-E2-T7). Reaching
+ *    `ready_for_pickup` writes `orders.pickup_code` and tells the customer
+ *    their goods are waiting. Both belong here rather than in the screen that
+ *    pressed the button: a code written outside this transaction could exist
+ *    for an order whose transition rolled back, and a customer who was never
+ *    told is the whole failure mode of Click & Collect.
+ *
+ * The notification is queued and `afterCommit`, so a worker never looks for a
+ * status this transaction has not finished writing. The **rest** of the order
+ * notifications — placed, paid, shipped, completed, cancelled — are `P2-E6-T3`
+ * and will hook in exactly here.
  */
 final class TransitionOrderStatus
 {
@@ -119,6 +128,8 @@ final class TransitionOrderStatus
                 'changed_by' => $actor?->getKey(),
                 'created_at' => now(),
             ]);
+
+            $this->announce($locked, $to);
 
             return $locked;
         });
@@ -197,6 +208,15 @@ final class TransitionOrderStatus
                 : PaymentStatus::Paid;
         }
 
+        if ($to === OrderStatus::ReadyForPickup && $order->pickup_code === null) {
+            // Issued here and nowhere else (P2-E2-T7). The null check is
+            // belt-and-braces — the state machine has no way back into
+            // `ready_for_pickup` — because the day it grows one, regenerating
+            // the code would invalidate the one the customer is already
+            // holding on their phone.
+            $changes['pickup_code'] = Order::newPickupCode();
+        }
+
         if ($to === OrderStatus::Expired) {
             $changes['payment_status'] = PaymentStatus::Expired;
             $changes['cancel_reason'] = $note ?? 'Batas waktu pembayaran terlewat.';
@@ -215,6 +235,30 @@ final class TransitionOrderStatus
         }
 
         return $changes;
+    }
+
+    /**
+     * Tell the customer, when the new status is one they are waiting on
+     * (P2-E2-T7).
+     *
+     * Only Click & Collect for now, because it is the one status whose whole
+     * point is that somebody has to come and fetch something. A guest order
+     * (POS, Phase 3) has no account to notify, and the counter has the
+     * customer standing in front of it anyway.
+     */
+    private function announce(Order $order, OrderStatus $to): void
+    {
+        if ($to !== OrderStatus::ReadyForPickup) {
+            return;
+        }
+
+        $customer = $order->user;
+
+        if (! $customer instanceof User) {
+            return;
+        }
+
+        $customer->notify(new OrderReadyForPickupNotification($order));
     }
 
     /**

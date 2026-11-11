@@ -118,6 +118,7 @@ final class AssignOrderBranch
             $locked->save();
 
             $this->movePayments($locked, $destination);
+            $this->moveShipments($locked, $destination);
 
             OrderStatusHistory::create([
                 'order_id' => $locked->getKey(),
@@ -148,6 +149,28 @@ final class AssignOrderBranch
     {
         foreach ($order->payments()->withoutGlobalScope(BranchScope::class)->get() as $payment) {
             $payment->update(['branch_id' => $destination->getKey()]);
+        }
+    }
+
+    /**
+     * Take the order's shipments to the new branch with it (ADR-038,
+     * P2-E2-T1).
+     *
+     * The same argument as `movePayments()`, and it bites here too: an unpaid
+     * delivery order already carries a `shipments` row — `CreateShipment`
+     * writes it at checkout — and a `branch_id` left behind would leave the
+     * destination unable to see the parcel it has to send, while the origin
+     * went on looking at a dispatch for an order it no longer serves.
+     *
+     * Only `pending_payment` orders can be moved at all (ADR-036), so the
+     * parcel being moved has never been handed to a courier: a waybill that
+     * changed branches would be a real problem, and the state machine is what
+     * makes it impossible.
+     */
+    private function moveShipments(Order $order, Branch $destination): void
+    {
+        foreach ($order->shipments()->withoutGlobalScope(BranchScope::class)->get() as $shipment) {
+            $shipment->update(['branch_id' => $destination->getKey()]);
         }
     }
 

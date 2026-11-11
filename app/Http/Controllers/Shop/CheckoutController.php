@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Shop;
 
 use App\Actions\Order\PlaceOrder;
 use App\Actions\Payment\InitiatePayment;
+use App\Actions\Shipping\QuoteShipping;
 use App\Enums\FulfillmentType;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\PaymentFailedException;
+use App\Exceptions\ShippingFailedException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shop\PlaceOrderRequest;
 use App\Models\Address;
@@ -21,9 +23,12 @@ use App\Services\Branch\StorefrontBranch;
 use App\Services\Cart\CartService;
 use App\Services\Payment\Data\PaymentContext;
 use App\Services\Payment\PaymentMethodEligibility;
+use App\Services\Shipping\Data\ShippingQuote;
+use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\PaymentPresenter;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -67,6 +72,7 @@ class CheckoutController extends Controller
         private readonly CartService $cartService,
         private readonly StorefrontBranch $storefrontBranch,
         private readonly PaymentMethodEligibility $eligibility,
+        private readonly QuoteShipping $quoteShipping,
     ) {}
 
     /**
@@ -75,7 +81,7 @@ class CheckoutController extends Controller
      * A customer who arrives with an empty cart is sent back to the cart
      * rather than shown a checkout for nothing.
      */
-    public function index(): Response|RedirectResponse
+    public function index(Request $request): Response|RedirectResponse
     {
         /** @var User $customer */
         $customer = auth()->user();
@@ -87,6 +93,8 @@ class CheckoutController extends Controller
         }
 
         $addresses = $this->addressProps($customer);
+        $destination = $this->destinationFor($customer, $request->integer('alamat') ?: null, $addresses);
+        $shipping = $this->shippingProps($branch, $cart, $destination);
 
         return Inertia::render('shop/checkout', [
             'cart' => $this->cartProps($cart),
@@ -96,7 +104,13 @@ class CheckoutController extends Controller
                 'flat_shipping_cost' => PlaceOrder::flatShippingCost(),
                 'tax_percent' => PlaceOrder::taxPercent(),
             ],
-            'payment_methods' => $this->paymentMethodProps($branch, $cart, $addresses),
+            // Quoted for the address the screen is looking at, which the
+            // customer can change: switching address reloads this prop and
+            // this prop only (`only: ['shipping', 'payment_methods']`), because
+            // a courier's price depends on where the parcel is going and
+            // nothing else on the screen does.
+            'shipping' => $shipping,
+            'payment_methods' => $this->paymentMethodProps($branch, $cart, $destination, $shipping),
             'reservation_minutes' => (int) config('shop.reservation_minutes'),
         ]);
     }
@@ -134,6 +148,14 @@ class CheckoutController extends Controller
                     .'Kurangi jumlahnya di keranjang, lalu coba lagi.',
                 'items' => $raced->getMessage(),
             ]);
+        } catch (ShippingFailedException $undeliverable) {
+            // The courier chosen on the screen cannot carry this parcel: it was
+            // switched off since the page was drawn, or the rate reaching this
+            // address has gone. Reported on the courier field rather than in a
+            // banner, so it lands next to the control the customer has to
+            // change — and no order is written, because the delivery charge is
+            // part of the total they agreed to.
+            return back()->withErrors(['courier_service_id' => $undeliverable->getMessage()]);
         }
 
         try {
@@ -247,42 +269,141 @@ class CheckoutController extends Controller
     }
 
     /**
+     * The address the screen quotes couriers against (P2-E2-T3).
+     *
+     * The one the customer picked if they picked one, and the default
+     * otherwise — the same address the screen pre-selects, so the figures
+     * beside the radio buttons belong to the row that is checked. Looked up
+     * **through the relation**, so another customer's address id in the query
+     * string selects nothing rather than quoting a stranger's city.
+     *
+     * @param  array<int, array<string, mixed>>  $addresses
+     */
+    private function destinationFor(User $customer, ?int $addressId, array $addresses): ?Address
+    {
+        $defaultId = $addresses[0]['id'] ?? null;
+        $wanted = $addressId ?? (is_int($defaultId) ? $defaultId : null);
+
+        if ($wanted === null) {
+            return null;
+        }
+
+        return $customer->addresses()->whereKey($wanted)->first();
+    }
+
+    /**
+     * The ways this cart can be sent, and what each costs (P2-E2-T3).
+     *
+     * Quoted server-side, always: the client is told the prices but never
+     * asked for them, and `PlaceOrder` re-quotes the one that comes back.
+     *
+     * Three shapes of answer, and the screen needs to tell them apart:
+     *
+     * - **Options.** The normal case. Cheapest first, which is the order a
+     *   shopper compares them in.
+     * - **Nothing, with a reason.** Nobody serves the address, or the shop has
+     *   no rate for it. The sentence is the server's and it tells the customer
+     *   what to do instead — collect at the branch, or use another address.
+     * - **Nothing, with no address yet.** A customer with no saved address has
+     *   nothing to quote against, and that is not a failure to report.
+     *
+     * A provider outage is reported as a reason rather than swallowed
+     * (`QuoteShipping` throws only when *every* provider failed), because an
+     * outage that reads as "we do not deliver to you" is a lie the customer
+     * would believe.
+     *
+     * @return array<string, mixed>
+     */
+    private function shippingProps(Branch $branch, Cart $cart, ?Address $destination): array
+    {
+        $base = [
+            'address_id' => $destination?->getKey(),
+            'options' => [],
+            'unavailable_reason' => null,
+        ];
+
+        if (! $destination instanceof Address) {
+            return $base;
+        }
+
+        $request = ShippingQuoteRequest::forAddress(
+            origin: $branch,
+            address: $destination,
+            weightGram: $this->cartWeight($cart),
+            itemValue: $cart->subtotal(),
+        );
+
+        try {
+            $quotes = $this->quoteShipping->handle($request);
+        } catch (ShippingFailedException $refused) {
+            return [...$base, 'unavailable_reason' => $refused->getMessage()];
+        }
+
+        if ($quotes === []) {
+            return [
+                ...$base,
+                'unavailable_reason' => ShippingFailedException::noServiceAvailable($request)->getMessage(),
+            ];
+        }
+
+        return [
+            ...$base,
+            'options' => array_map(fn (ShippingQuote $quote): array => $quote->toArray(), $quotes),
+        ];
+    }
+
+    /**
+     * The whole basket's weight, the same way `PlaceOrder` adds it up.
+     */
+    private function cartWeight(Cart $cart): int
+    {
+        return $cart->items->sum(
+            fn (CartItem $item): int => $item->variant->effectiveWeightGram() * $item->quantity,
+        );
+    }
+
+    /**
      * The ways this cart may be paid for, each with its verdict (P2-E1-T7).
      *
      * Judged against the **screen's own quotation** of the order: the cart's
-     * subtotal plus the flat delivery charge and the tax `PlaceOrder` will
-     * apply. The delivery charge is included because a method's ceiling is a
-     * limit on the bill the customer sees, and quoting it against the subtotal
-     * alone would offer COD for an order that then exceeded the limit.
+     * subtotal plus the delivery charge and the tax `PlaceOrder` will apply.
+     * The delivery charge is included because a method's ceiling is a limit on
+     * the bill the customer sees, and quoting it against the subtotal alone
+     * would offer COD for an order that then exceeded the limit.
      *
-     * The destination is taken from the customer's **default** address, since
-     * that is the one the screen pre-selects. Switching to an address in
-     * another city re-evaluates nothing until the order is placed, and
-     * `InitiatePayment` has the final word — a mismatch there is reported on
-     * the order page rather than silently ignored.
+     * Since `P2-E2-T3` the delivery charge is the **cheapest courier quote**
+     * for the address the screen is looking at, not a flat figure. The
+     * cheapest rather than the selected one on purpose: this prop is computed
+     * before the customer has picked a courier, and judging COD against the
+     * most expensive option would withhold it from an order that qualifies.
+     * Picking a dearer courier can carry a borderline order over a method's
+     * ceiling, and `InitiatePayment` is the one that refuses it then — which is
+     * why that refusal lands on the order page as a sentence rather than being
+     * swallowed.
+     *
+     * The destination is the address the quote was made against, so the city
+     * fence on a method and the price beside the couriers always describe the
+     * same place.
      *
      * Both fulfilment types are quoted for, because the customer has not
      * chosen one yet; the screen filters by what they pick, which is why each
      * method carries its own `fulfillment_types`.
      *
-     * @param  array<int, array<string, mixed>>  $addresses
+     * @param  Address|null  $destination  The address the couriers were quoted against.
+     * @param  array<string, mixed>  $shipping  The output of `shippingProps()`.
      * @return array<string, mixed>
      */
-    private function paymentMethodProps(Branch $branch, Cart $cart, array $addresses): array
+    private function paymentMethodProps(Branch $branch, Cart $cart, ?Address $destination, array $shipping): array
     {
-        $default = $addresses[0] ?? null;
         $methods = PaymentMethod::query()->active()->ordered()->get();
+        $cheapestShipping = $this->cheapestShippingCost($shipping);
 
         $quote = fn (FulfillmentType $type): PaymentContext => new PaymentContext(
             branchId: $branch->getKey(),
             fulfillmentType: $type,
-            amount: $this->quotedTotal($cart, $type),
-            cityName: $type === FulfillmentType::Delivery && is_string($default['city_name'] ?? null)
-                ? $default['city_name']
-                : null,
-            provinceName: $type === FulfillmentType::Delivery && is_string($default['province_name'] ?? null)
-                ? $default['province_name']
-                : null,
+            amount: $this->quotedTotal($cart, $type, $cheapestShipping),
+            cityName: $type === FulfillmentType::Delivery ? $destination?->city_name : null,
+            provinceName: $type === FulfillmentType::Delivery ? $destination?->province_name : null,
         );
 
         return [
@@ -300,18 +421,42 @@ class CheckoutController extends Controller
     }
 
     /**
+     * The cheapest delivery charge on offer, or the flat one when none is.
+     *
+     * The fallback matters: an address nobody serves still has to produce a
+     * figure for the payment methods to be judged against, and the flat charge
+     * is what `PlaceOrder` would bill if such an order were placed by hand.
+     *
+     * @param  array<string, mixed>  $shipping
+     */
+    private function cheapestShippingCost(array $shipping): int
+    {
+        $options = is_array($shipping['options'] ?? null) ? $shipping['options'] : [];
+
+        if ($options === []) {
+            return PlaceOrder::flatShippingCost();
+        }
+
+        return (int) min(array_map(
+            static fn (array $option): int => (int) $option['cost'],
+            $options,
+        ));
+    }
+
+    /**
      * What the order would come to, the same way `PlaceOrder` works it out.
      *
-     * Not a second formula: the two figures it adds — the flat delivery charge
-     * and the tax percentage — are read from the same `PlaceOrder` methods the
-     * action itself uses, so the quotation and the order cannot disagree about
-     * anything except a price that changed in between, which `PlaceOrder`
-     * refuses outright.
+     * Not a second formula: the delivery charge is a courier quote this
+     * controller asked `QuoteShipping` for — the same action `PlaceOrder`
+     * re-asks — and the tax percentage is read from the same `PlaceOrder`
+     * method the action itself uses. So the quotation and the order cannot
+     * disagree about anything except a price that changed in between, which
+     * `PlaceOrder` refuses outright.
      */
-    private function quotedTotal(Cart $cart, FulfillmentType $fulfillment): int
+    private function quotedTotal(Cart $cart, FulfillmentType $fulfillment, int $shippingCost): int
     {
         $subtotal = $cart->subtotal();
-        $shipping = $fulfillment->requiresShipping() ? PlaceOrder::flatShippingCost() : 0;
+        $shipping = $fulfillment->requiresShipping() ? $shippingCost : 0;
         $tax = (int) round($subtotal * PlaceOrder::taxPercent() / 100);
 
         return $subtotal + $shipping + $tax;

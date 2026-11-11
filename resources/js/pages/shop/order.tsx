@@ -11,6 +11,7 @@ import {
 import { useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
 import { PaymentPanel } from '@/components/shop/payment-panel';
+import { ShipmentPanel } from '@/components/shop/shipment-panel';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ import account from '@/routes/shop/account';
 import { ORDER_STATUS_TONE, PAYMENT_STATUS_TONE } from '@/types/order';
 import type { OrderDetail } from '@/types/order';
 import type { CustomerPayment, PaymentMethodChoice } from '@/types/payment';
+import type { CustomerShipment } from '@/types/shipping';
 
 type OrderProps = {
     order: OrderDetail;
@@ -39,6 +41,16 @@ type OrderProps = {
     payment: CustomerPayment | null;
     payment_history: CustomerPayment[];
     payment_methods: PaymentMethodChoice[];
+    /**
+     * Every dispatch of this order's goods, newest first, each with the
+     * timeline the courier wrote (P2-E2-T5).
+     */
+    shipments: CustomerShipment[];
+    /**
+     * The code to read out at the counter, and only while the goods are
+     * actually waiting there (P2-E2-T7).
+     */
+    pickup_code: string | null;
     just_placed: boolean;
 };
 
@@ -49,6 +61,8 @@ export default function OrderPage({
     payment,
     payment_history: paymentHistory,
     payment_methods: paymentMethods,
+    shipments,
+    pickup_code: pickupCode,
     just_placed: justPlaced,
 }: OrderProps) {
     const [cancelling, setCancelling] = useState(false);
@@ -305,6 +319,12 @@ export default function OrderPage({
                             blockedReason={paymentBlockedReason}
                             canPay={order.can.pay ?? false}
                             history={paymentHistory}
+                        />
+
+                        <ShipmentPanel
+                            shipments={shipments}
+                            pickupCode={pickupCode}
+                            branchName={order.branch?.name ?? 'cabang'}
                         />
 
                         <section className="rounded-lg border p-4 text-sm">

@@ -69,6 +69,29 @@ return [
         'tolerate_unsigned_webhook' => (bool) env('MIDTRANS_WEBHOOK_TOLERATE_UNSIGNED', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Biteship (P2-E2-T6)
+    |--------------------------------------------------------------------------
+    |
+    | Credentials for the shipping aggregator. Nothing here has a default worth
+    | shipping: a missing key makes `BiteshipProvider` refuse the quote with a
+    | sentence rather than sending an unauthenticated request, and the Biteship
+    | courier is seeded **inactive** so a shop without a key never offers a
+    | courier that cannot answer.
+    |
+    | One host, unlike Midtrans: Biteship's test and live environments differ
+    | by the key, not by the URL. `BITESHIP_BASE_URL` is therefore only for a
+    | proxy or a recorded test environment.
+    |
+    */
+
+    'biteship' => [
+        'api_key' => env('BITESHIP_API_KEY'),
+        'base_url' => env('BITESHIP_BASE_URL', 'https://api.biteship.com'),
+        'timeout' => (int) env('BITESHIP_TIMEOUT', 15),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
