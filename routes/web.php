@@ -10,6 +10,7 @@ use App\Http\Controllers\Shop\HomeController;
 use App\Http\Controllers\Shop\OrderController;
 use App\Http\Controllers\Shop\PaymentController;
 use App\Http\Controllers\Shop\ProductController;
+use App\Http\Controllers\Shop\ReturnController;
 use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
 use Illuminate\Support\Facades\Route;
@@ -167,6 +168,32 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
             Route::post('{order}/bayar/{payment}/bukti', [PaymentController::class, 'uploadProof'])
                 ->middleware('throttle:20,1')
                 ->name('payments.proof');
+
+            /*
+             * Sending goods back (P2-E4-T2).
+             *
+             * Nested under the order for the same reason the payment routes
+             * are: the customer's authorisation *is* the order, so the
+             * controller checks `orders.user_id` and somebody else's return is
+             * not found rather than refused.
+             *
+             * The request gets a screen of its own — unlike paying — because
+             * it asks for a quantity per line, a reason, a paragraph and
+             * photos, and the order page has nowhere to put those. What stays
+             * on the order page is where each request stands.
+             *
+             * `store` is throttled because each call writes a document and
+             * takes up to five uploaded photos.
+             */
+            Route::get('{order}/retur', [ReturnController::class, 'create'])
+                ->name('returns.create');
+
+            Route::post('{order}/retur', [ReturnController::class, 'store'])
+                ->middleware('throttle:10,1')
+                ->name('returns.store');
+
+            Route::post('{order}/retur/{return}/batal', [ReturnController::class, 'cancel'])
+                ->name('returns.cancel');
         });
     });
 });

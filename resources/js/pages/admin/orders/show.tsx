@@ -9,6 +9,7 @@ import {
     ShoppingBag,
     Store,
     Truck,
+    Undo2,
     User,
     Wallet,
 } from 'lucide-react';
@@ -18,6 +19,9 @@ import Heading from '@/components/heading';
 import { ConfirmPickupForm } from '@/components/admin/confirm-pickup-form';
 import { DispatchShipmentForm } from '@/components/admin/dispatch-shipment-form';
 import { PaymentCard } from '@/components/admin/payment-card';
+import { ProcessRefundForm } from '@/components/admin/process-refund-form';
+import type { RefundFormOptions } from '@/components/admin/process-refund-form';
+import { RefundList } from '@/components/admin/refund-list';
 import { ShipmentCard } from '@/components/admin/shipment-card';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -50,6 +54,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatDateTime, formatRupiah, formatWeight } from '@/lib/format';
 import { show as customerShow } from '@/routes/admin/customers';
 import orders from '@/routes/admin/orders';
+import { show as returnShow } from '@/routes/admin/returns';
 import type { FilterOption } from '@/types';
 import {
     ORDER_STATUS_TONE,
@@ -59,6 +64,8 @@ import {
 } from '@/types/order';
 import type { PaymentDetail } from '@/types/payment';
 import type { CourierServiceChoice, ShipmentDetail } from '@/types/shipping';
+import { RETURN_STATE_TONE } from '@/types/return';
+import type { RefundRow, ReturnRow } from '@/types/return';
 
 type OrderShowProps = {
     order: OrderDetail;
@@ -88,6 +95,13 @@ type OrderShowProps = {
     courier_services: CourierServiceChoice[];
     /** The statuses a branch may set on a parcel by hand. */
     shipment_statuses: FilterOption[];
+    /** Requests to send this order's goods back (P2-E4). */
+    returns: ReturnRow[];
+    /** Money that has gone back against this order (P2-E4-T4). */
+    refunds: RefundRow[];
+    /** Null when the actor may not open a refund at all. */
+    refund_options: RefundFormOptions | null;
+    can_process_refund: boolean;
 };
 
 const RESERVATION_TONE = {
@@ -106,6 +120,10 @@ export default function OrderShow({
     shipments,
     courier_services: courierServices,
     shipment_statuses: shipmentStatuses,
+    returns,
+    refunds,
+    refund_options: refundOptions,
+    can_process_refund: canProcessRefund,
 }: OrderShowProps) {
     const [cancelling, setCancelling] = useState(false);
     const [moving, setMoving] = useState(false);
@@ -431,6 +449,79 @@ export default function OrderShow({
                                       </CardContent>
                                   </Card>
                               )}
+
+                        {(returns.length > 0 ||
+                            refunds.length > 0 ||
+                            refundOptions !== null) && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2 text-base">
+                                        <Undo2 aria-hidden className="size-4" />
+                                        Retur &amp; refund
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Keputusan retur diambil di halaman
+                                        returnya, tempat foto dan rincian
+                                        barangnya ada. Pengembalian dana dapat
+                                        dibuat dari sini juga, karena dana bisa
+                                        kembali tanpa ada barang yang kembali.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="flex flex-col gap-4">
+                                    {returns.length > 0 && (
+                                        <ul className="divide-y rounded-md border text-sm">
+                                            {returns.map((item) => (
+                                                <li
+                                                    key={item.id}
+                                                    className="flex flex-wrap items-center justify-between gap-3 p-3"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <Link
+                                                            href={
+                                                                returnShow(
+                                                                    item.id,
+                                                                ).url
+                                                            }
+                                                            className="truncate font-medium tabular-nums hover:underline"
+                                                        >
+                                                            {item.code}
+                                                        </Link>
+                                                        <p className="truncate text-xs text-muted-foreground">
+                                                            {item.type_label} ·{' '}
+                                                            {item.reason_label}{' '}
+                                                            · {item.item_count}{' '}
+                                                            unit
+                                                        </p>
+                                                    </div>
+                                                    <StatusBadge
+                                                        label={
+                                                            item.status_label
+                                                        }
+                                                        tone={
+                                                            RETURN_STATE_TONE[
+                                                                item.status
+                                                            ]
+                                                        }
+                                                    />
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+
+                                    {refundOptions && (
+                                        <ProcessRefundForm
+                                            orderId={order.id}
+                                            options={refundOptions}
+                                        />
+                                    )}
+
+                                    <RefundList
+                                        refunds={refunds}
+                                        canProcess={canProcessRefund}
+                                    />
+                                </CardContent>
+                            </Card>
+                        )}
 
                         <Card>
                             <CardHeader>

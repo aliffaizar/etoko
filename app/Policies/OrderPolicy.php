@@ -15,7 +15,7 @@ use App\Models\User;
  * branch's order id in the URL answers 404 before this policy is consulted at
  * all — the refusals here are the second line, not the first.
  *
- * Four of the seven are deliberately narrower than "has the permission":
+ * Five of the eight are deliberately narrower than "has the permission":
  *
  * - **`assignBranch` is central only.** Choosing which branch serves a
  *   customer is a company decision; a branch admin who could hand work to a
@@ -29,6 +29,9 @@ use App\Models\User;
  *   They sit here rather than on `ShipmentPolicy` because an order whose
  *   delivery was arranged by hand has no parcel to authorise against until the
  *   branch says which courier it used.
+ * - **`refund` is central only as well**, on `refunds.process`, and lives
+ *   here for the same reason: opening a refund is what is being asked for, so
+ *   there is no `Refund` row to authorise against (P2-E4-T4).
  *
  * A customer's own orders are **not** governed here: a shopper holds no
  * `orders.*` permission, and their own history is scoped by `user_id` in
@@ -117,6 +120,27 @@ class OrderPolicy
         return $user->can('shipments.manage')
             && $this->isWithinReach($user, $order)
             && $order->pickupConfirmationBlockedReason() === null;
+    }
+
+    /**
+     * Opening a refund against the order (P2-E4-T4).
+     *
+     * Central only, explicitly — not merely a permission check — so the Role
+     * screen cannot hand a branch the company's bank account by accident
+     * (ADR-049). It lives on this policy rather than on `RefundPolicy` for the
+     * same reason `dispatchShipment` does: at this point there is no refund
+     * row to authorise against, because creating one is the thing being asked
+     * for.
+     *
+     * Also asks the order, so a refund is never offered against an order that
+     * has nothing left to give back.
+     */
+    public function refund(User $user, Order $order): bool
+    {
+        return $user->isCentral()
+            && $user->can('refunds.process')
+            && $this->isWithinReach($user, $order)
+            && $order->refundableAmount() > 0;
     }
 
     /**

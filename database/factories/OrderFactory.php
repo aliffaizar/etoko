@@ -178,6 +178,17 @@ class OrderFactory extends Factory
             ->state(['pickup_code' => $code]);
     }
 
+    /**
+     * An order whose goods have reached the customer.
+     *
+     * The state returns open from (`Order::returnBlockedReason()`): goods can
+     * only come back once they have gone.
+     */
+    public function delivered(): static
+    {
+        return $this->status(OrderStatus::Delivered);
+    }
+
     public function completed(): static
     {
         return $this->status(OrderStatus::Completed);

@@ -8,6 +8,7 @@ use App\Actions\Shipping\QuoteShipping;
 use App\Enums\FulfillmentType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\PaymentTransactionStatus;
 use App\Enums\ShipmentStatus;
 use App\Exceptions\CheckoutFailedException;
 use App\Exceptions\IllegalOrderTransitionException;
@@ -22,13 +23,17 @@ use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Branch;
 use App\Models\CourierService;
 use App\Models\Order;
+use App\Models\OrderReturn;
 use App\Models\Payment;
+use App\Models\Refund;
 use App\Models\Shipment;
 use App\Models\User;
 use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\OrderListQuery;
 use App\Support\OrderPresenter;
 use App\Support\PaymentPresenter;
+use App\Support\RefundPresenter;
+use App\Support\ReturnPresenter;
 use App\Support\ShipmentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
@@ -107,6 +112,12 @@ class OrderController extends Controller
             // parcel can be tracked automatically — both read the live row,
             // not the snapshot.
             'shipments' => fn ($q) => $q->with(['trackingEvents', 'courier', 'dispatchedBy:id,name']),
+            // What has been sent back and what money has gone out again
+            // (P2-E4). Both belong on this screen rather than only on the
+            // return queue: the first question asked about a refund is which
+            // order it is against.
+            'returns' => fn ($q) => $q->withSum('items', 'quantity'),
+            'refunds' => fn ($q) => $q->with(['return:id,code', 'payment:id,reference', 'processedBy:id,name']),
         ]);
 
         return Inertia::render('admin/orders/show', [
@@ -116,6 +127,7 @@ class OrderController extends Controller
                 'assign_branch' => $actor->can('assignBranch', $order),
                 'dispatch_shipment' => $actor->can('dispatchShipment', $order),
                 'confirm_pickup' => $actor->can('confirmPickup', $order),
+                'refund' => $actor->can('refund', $order),
             ]),
             'reservations' => OrderPresenter::reservations($order->stockReservations),
             'blocked' => [
@@ -169,6 +181,40 @@ class OrderController extends Controller
                 fn (ShipmentStatus $status): array => ['value' => $status->value, 'label' => $status->label()],
                 ShipmentStatus::manualTransitions(),
             ),
+            // The return requests against this order, and the money that has
+            // gone back (P2-E4). The requests are links rather than forms —
+            // deciding one happens on its own screen, where the photos and
+            // the line-by-line count are — while the refund form is here,
+            // because money can go back without any goods coming back at all
+            // (ADR-045).
+            'returns' => $actor->can('returns.view')
+                ? $order->returns
+                    ->map(fn (OrderReturn $return): array => ReturnPresenter::row($return))
+                    ->values()
+                    ->all()
+                : [],
+            'refunds' => $actor->can('returns.view')
+                ? $order->refunds
+                    ->map(fn (Refund $refund): array => RefundPresenter::row($refund))
+                    ->values()
+                    ->all()
+                : [],
+            'refund_options' => $actor->can('refund', $order)
+                ? [
+                    'methods' => RefundPresenter::methodChoices(),
+                    'payments' => $order->payments
+                        ->filter(fn (Payment $payment): bool => $payment->status === PaymentTransactionStatus::Success)
+                        ->map(fn (Payment $payment): array => PaymentPresenter::row($payment))
+                        ->values()
+                        ->all(),
+                    'refundable_amount' => $order->refundableAmount(),
+                    // No return to go by here, so the suggestion is simply
+                    // what is left: an order refunded from its own screen is
+                    // usually one with nothing to send back.
+                    'suggested_amount' => $order->refundableAmount(),
+                ]
+                : null,
+            'can_process_refund' => $actor->isCentral() && $actor->can('refunds.process'),
         ]);
     }
 

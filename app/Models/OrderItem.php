@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\ReturnStatus;
 use Database\Factories\OrderItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * One line of an order (P1-E7-T1).
@@ -39,6 +42,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read Order $order
  * @property-read Product|null $product
  * @property-read ProductVariant|null $variant
+ * @property-read Collection<int, ReturnItem> $returnItems
  */
 #[Fillable([
     'order_id', 'product_id', 'product_variant_id',
@@ -100,11 +104,70 @@ class OrderItem extends Model
     }
 
     /**
+     * Every return line that has ever named this order line (P2-E4-T1).
+     *
+     * @return HasMany<ReturnItem, $this>
+     */
+    public function returnItems(): HasMany
+    {
+        return $this->hasMany(ReturnItem::class);
+    }
+
+    /**
      * Units on this line that have not been sent back.
+     *
+     * `refunded_quantity` counts units the branch has actually **taken back**
+     * — it is stamped when a parcel is booked in (`ReceiveReturn`), not when a
+     * return is requested. A request still in flight does not reduce what was
+     * sold, because it may yet be turned down.
      */
     public function netQuantity(): int
     {
         return max($this->quantity - $this->refunded_quantity, 0);
+    }
+
+    /**
+     * Units of this line already committed to a return (P2-E4-T2).
+     *
+     * Counted across every request that is still **alive** — requested,
+     * approved, received or completed — rather than only the ones that have
+     * arrived. That is what stops a customer asking for the same two units
+     * back twice while the first request is still being decided; a rejected
+     * or withdrawn request releases its units again, which is exactly right.
+     *
+     * Reads a loaded `returnItems` relation when the caller has one, so a
+     * form listing twelve lines costs no query per line. Load it **with its
+     * `return`** (`with('returnItems.return')`) — a return line whose header
+     * is not loaded is counted rather than lazily fetched, which errs towards
+     * offering the customer fewer units than they may have, and that is the
+     * safe direction to be wrong in.
+     */
+    public function returnedQuantity(): int
+    {
+        $dead = [ReturnStatus::Rejected, ReturnStatus::Cancelled];
+
+        if ($this->relationLoaded('returnItems')) {
+            return (int) $this->returnItems
+                ->filter(fn (ReturnItem $item): bool => $item->relationLoaded('return')
+                    ? ! in_array($item->return->status, $dead, strict: true)
+                    : true)
+                ->sum('quantity');
+        }
+
+        return (int) $this->returnItems()
+            ->whereHas('return', fn ($query) => $query->whereNotIn('status', array_map(
+                fn (ReturnStatus $status): string => $status->value,
+                $dead,
+            )))
+            ->sum('quantity');
+    }
+
+    /**
+     * How many units of this line the customer may still send back.
+     */
+    public function returnableQuantity(): int
+    {
+        return max($this->quantity - $this->returnedQuantity(), 0);
     }
 
     /**

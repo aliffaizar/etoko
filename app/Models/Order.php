@@ -89,6 +89,8 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, StockReservation> $stockReservations
  * @property-read Collection<int, Payment> $payments
  * @property-read Collection<int, Shipment> $shipments
+ * @property-read Collection<int, OrderReturn> $returns
+ * @property-read Collection<int, Refund> $refunds
  */
 #[Fillable([
     'order_number', 'user_id', 'branch_id', 'channel', 'fulfillment_type',
@@ -203,6 +205,106 @@ class Order extends Model
     public function shipments(): HasMany
     {
         return $this->hasMany(Shipment::class)->orderByDesc('id');
+    }
+
+    /**
+     * Every request to send this order's goods back, newest first (P2-E4-T1).
+     *
+     * Several are normal rather than exceptional: a customer who sends one
+     * item back in March and another in May has two returns, and
+     * `order_items.refunded_quantity` is what keeps the two from together
+     * exceeding what was bought.
+     *
+     * @return HasMany<OrderReturn, $this>
+     */
+    public function returns(): HasMany
+    {
+        return $this->hasMany(OrderReturn::class)->orderByDesc('id');
+    }
+
+    /**
+     * Every movement of money back to the customer, newest first (P2-E4-T4).
+     *
+     * @return HasMany<Refund, $this>
+     */
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(Refund::class)->orderByDesc('id');
+    }
+
+    /**
+     * How much of this order's money has actually gone back (P2-E4-T4, T5).
+     *
+     * Only `processed` refunds count: a reversal still in flight is money the
+     * shop has promised, not money the customer has, and treating it as
+     * returned would let the next refund exceed what was ever paid.
+     *
+     * **The order's own totals are never touched by a refund** — `subtotal`,
+     * `grand_total` and every line's `subtotal` stay as they were sold
+     * (ADR-047). What a refund changes is `payment_status`, the lines'
+     * `refunded_quantity`, and this sum. That is what keeps a partial refund
+     * from quietly rewriting last month's sales figures.
+     */
+    public function refundedAmount(): int
+    {
+        if ($this->relationLoaded('refunds')) {
+            return (int) $this->refunds
+                ->filter(fn (Refund $refund): bool => $refund->status->isSettled())
+                ->sum('amount');
+        }
+
+        return (int) $this->refunds()->settled()->sum('amount');
+    }
+
+    /**
+     * How much of this order could still be sent back.
+     *
+     * The ceiling is what the customer actually paid — `grand_total`, not the
+     * goods' value — because the delivery they paid for is refundable too when
+     * the shop was at fault (`ReturnReason::faultOfShop()`). Method fees are
+     * **not** in it: `payments.fee_amount` is the gateway's charge for taking
+     * the money, the gateway keeps it on a reversal, and offering it back
+     * would be the shop paying a fee twice (ADR-039).
+     */
+    public function refundableAmount(): int
+    {
+        return max($this->grand_total - $this->refundedAmount(), 0);
+    }
+
+    /**
+     * Why this order's goods may not be sent back, or null when they may be
+     * (P2-E4-T2).
+     *
+     * One source for `RequestReturn`'s refusal and for the `can.request_return`
+     * flag the storefront reads, so the button is never offered for an order
+     * the server would turn down.
+     *
+     * Goods can only come back once they have **gone** — `delivered` or
+     * `completed`, which is exactly the pair the state machine lets move on to
+     * `refunded` (docs/03-data-model.md §6). An order still being packed is
+     * cancelled, not returned, and the two are different documents with
+     * different consequences for stock.
+     */
+    public function returnBlockedReason(): ?string
+    {
+        if (! in_array($this->status, [OrderStatus::Delivered, OrderStatus::Completed], strict: true)) {
+            return "Pesanan berstatus \"{$this->status->label()}\" belum dapat diretur. "
+                .'Retur dibuka setelah barang diterima pelanggan.';
+        }
+
+        if (! in_array($this->payment_status, [PaymentStatus::Paid, PaymentStatus::PartiallyRefunded], strict: true)) {
+            return "Pesanan dengan pembayaran \"{$this->payment_status->label()}\" tidak dapat diretur.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether the customer may still ask to send goods back.
+     */
+    public function isReturnable(): bool
+    {
+        return $this->returnBlockedReason() === null;
     }
 
     /**

@@ -8,14 +8,18 @@ use App\Exceptions\IllegalOrderTransitionException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Shop\CancelOrderRequest;
 use App\Models\Order;
+use App\Models\OrderReturn;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
+use App\Models\Refund;
 use App\Models\Shipment;
 use App\Models\User;
 use App\Services\Payment\Data\PaymentContext;
 use App\Services\Payment\PaymentMethodEligibility;
 use App\Support\OrderPresenter;
 use App\Support\PaymentPresenter;
+use App\Support\RefundPresenter;
+use App\Support\ReturnPresenter;
 use App\Support\ShipmentPresenter;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\RedirectResponse;
@@ -88,6 +92,12 @@ class OrderController extends Controller
             // `courier` is loaded for the courier's own tracking link, which
             // is the live row rather than the snapshot the parcel carries.
             'shipments' => fn ($query) => $query->with(['trackingEvents', 'courier']),
+            // What has been sent back, and what money has come back for it
+            // (P2-E4-T2, T4). The *result* lives on this page while the
+            // request form has a screen of its own, because this is what a
+            // customer comes back to look at.
+            'returns.items.orderItem',
+            'refunds',
         ]);
 
         $openPayment = $order->openPayment();
@@ -96,9 +106,11 @@ class OrderController extends Controller
             'order' => OrderPresenter::detail($order, [
                 'cancel' => $order->cancellationBlockedReason(asCustomer: true) === null,
                 'pay' => $order->isPayable(),
+                'request_return' => $order->isReturnable(),
             ]),
             'cancel_blocked_reason' => $order->cancellationBlockedReason(asCustomer: true),
             'payment_blocked_reason' => $order->paymentBlockedReason(),
+            'return_blocked_reason' => $order->returnBlockedReason(),
             // The attempt in progress, shown as instructions; and the rest as
             // history, so a customer can see the virtual account that lapsed
             // before the transfer they made instead.
@@ -130,6 +142,18 @@ class OrderController extends Controller
             'pickup_code' => $order->status === OrderStatus::ReadyForPickup
                 ? $order->pickup_code
                 : null,
+            // The requests to send goods back, and the money that has come
+            // back (P2-E4-T2, T4). Deliberately narrower than the panel's
+            // view: the restock decision, the internal note and who approved
+            // it are the shop's own workings.
+            'returns' => $order->returns
+                ->map(fn (OrderReturn $return): array => ReturnPresenter::forCustomer($return))
+                ->values()
+                ->all(),
+            'refunds' => $order->refunds
+                ->map(fn (Refund $refund): array => RefundPresenter::forCustomer($refund))
+                ->values()
+                ->all(),
             // Set by the redirect from checkout, so the confirmation panel
             // appears once rather than every time the order is opened.
             'just_placed' => $request->boolean('baru'),

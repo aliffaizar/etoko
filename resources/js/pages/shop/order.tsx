@@ -11,6 +11,7 @@ import {
 import { useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
 import { PaymentPanel } from '@/components/shop/payment-panel';
+import { ReturnPanel } from '@/components/shop/return-panel';
 import { ShipmentPanel } from '@/components/shop/shipment-panel';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -31,12 +32,15 @@ import account from '@/routes/shop/account';
 import { ORDER_STATUS_TONE, PAYMENT_STATUS_TONE } from '@/types/order';
 import type { OrderDetail } from '@/types/order';
 import type { CustomerPayment, PaymentMethodChoice } from '@/types/payment';
+import type { CustomerRefund, CustomerReturn } from '@/types/return';
 import type { CustomerShipment } from '@/types/shipping';
 
 type OrderProps = {
     order: OrderDetail;
     cancel_blocked_reason: string | null;
     payment_blocked_reason: string | null;
+    /** Why goods may not be sent back yet, for the panel to say so. */
+    return_blocked_reason: string | null;
     /** The attempt in progress, or the one that most recently failed. */
     payment: CustomerPayment | null;
     payment_history: CustomerPayment[];
@@ -51,6 +55,10 @@ type OrderProps = {
      * actually waiting there (P2-E2-T7).
      */
     pickup_code: string | null;
+    /** Requests to send goods back, newest first (P2-E4-T2). */
+    returns: CustomerReturn[];
+    /** Money that has come back against this order (P2-E4-T4). */
+    refunds: CustomerRefund[];
     just_placed: boolean;
 };
 
@@ -58,11 +66,14 @@ export default function OrderPage({
     order,
     cancel_blocked_reason: cancelBlockedReason,
     payment_blocked_reason: paymentBlockedReason,
+    return_blocked_reason: returnBlockedReason,
     payment,
     payment_history: paymentHistory,
     payment_methods: paymentMethods,
     shipments,
     pickup_code: pickupCode,
+    returns,
+    refunds,
     just_placed: justPlaced,
 }: OrderProps) {
     const [cancelling, setCancelling] = useState(false);
@@ -325,6 +336,14 @@ export default function OrderPage({
                             shipments={shipments}
                             pickupCode={pickupCode}
                             branchName={order.branch?.name ?? 'cabang'}
+                        />
+
+                        <ReturnPanel
+                            orderId={order.id}
+                            returns={returns}
+                            refunds={refunds}
+                            canRequest={order.can.request_return ?? false}
+                            blockedReason={returnBlockedReason}
                         />
 
                         <section className="rounded-lg border p-4 text-sm">

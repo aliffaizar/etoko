@@ -17,6 +17,8 @@ use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductImageController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\ProductVariantController;
+use App\Http\Controllers\Admin\RefundController;
+use App\Http\Controllers\Admin\ReturnController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
@@ -391,6 +393,90 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::post('{order}/ambil', [ShipmentController::class, 'confirmPickup'])
                 ->middleware('can:shipments.manage')
                 ->name('pickup.confirm');
+
+            /*
+             * Opening a refund against the order (P2-E4-T4).
+             *
+             * Nested under the order rather than under `refunds`, because at
+             * this point there is no refund to authorise against: creating one
+             * is the thing being asked for, and an amount only means anything
+             * against the order it is a share of. `OrderPolicy::refund` is the
+             * second line behind the permission, and it is **central only**
+             * explicitly (ADR-049) so the Role screen cannot hand a branch the
+             * company's bank account.
+             */
+            Route::post('{order}/refund', [RefundController::class, 'store'])
+                ->middleware('can:refunds.process')
+                ->name('refunds.store');
+        });
+
+        /*
+         * The return queue (P2-E4-T3).
+         *
+         * One set of screens for central and branch staff, like the order and
+         * payment queues: `OrderReturn` carries the branch global scope
+         * through a `branch_id` copied from the order (ADR-038), so a branch
+         * account's queue is already its own and another branch's return id in
+         * the URL answers 404 before `OrderReturnPolicy` is consulted
+         * (ADR-027).
+         *
+         * Reading and deciding are separated by permission, not by screen:
+         * `returns.view` sees the queue, while agreeing to take goods back,
+         * turning a request down, booking the parcel in and closing it all
+         * need `returns.approve`. Those four share one permission because they
+         * are the same decision at different points of the same parcel, and
+         * the matrix in docs/04-rbac.md has no finer distinction to honour.
+         */
+        Route::prefix('returns')->name('returns.')->group(function () {
+            Route::get('/', [ReturnController::class, 'index'])
+                ->middleware('can:returns.view')
+                ->name('index');
+
+            Route::get('{return}', [ReturnController::class, 'show'])
+                ->middleware('can:returns.view')
+                ->name('show');
+
+            Route::post('{return}/approve', [ReturnController::class, 'approve'])
+                ->middleware('can:returns.approve')
+                ->name('approve');
+
+            Route::post('{return}/reject', [ReturnController::class, 'reject'])
+                ->middleware('can:returns.approve')
+                ->name('reject');
+
+            Route::post('{return}/receive', [ReturnController::class, 'receive'])
+                ->middleware('can:returns.approve')
+                ->name('receive');
+
+            Route::post('{return}/complete', [ReturnController::class, 'complete'])
+                ->middleware('can:returns.approve')
+                ->name('complete');
+        });
+
+        /*
+         * Money going back (P2-E4-T4).
+         *
+         * A listing of its own because the brief's admin menu has one, and
+         * because it answers what the return queue cannot: which refunds has
+         * somebody promised and not yet sent? A branch admin holds
+         * `returns.view` and reads it; carrying one out needs
+         * `refunds.process`, which is central (ADR-049).
+         *
+         * Opening a refund is not here but on the order above, because there
+         * is no refund row to act on yet.
+         */
+        Route::prefix('refunds')->name('refunds.')->group(function () {
+            Route::get('/', [RefundController::class, 'index'])
+                ->middleware('can:returns.view')
+                ->name('index');
+
+            Route::post('{refund}/settle', [RefundController::class, 'settle'])
+                ->middleware('can:refunds.process')
+                ->name('settle');
+
+            Route::post('{refund}/fail', [RefundController::class, 'fail'])
+                ->middleware('can:refunds.process')
+                ->name('fail');
         });
 
         /*

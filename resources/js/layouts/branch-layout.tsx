@@ -1,4 +1,5 @@
 import {
+    Banknote,
     Boxes,
     ClipboardList,
     FolderTree,
@@ -9,6 +10,7 @@ import {
     ShoppingCart,
     Store,
     Tags,
+    Undo2,
     Users,
     Wallet,
 } from 'lucide-react';
@@ -28,6 +30,8 @@ import branchProducts from '@/routes/admin/branches/products';
 import { index as categoriesIndex } from '@/routes/admin/categories';
 import { index as ordersIndex } from '@/routes/admin/orders';
 import { index as paymentsIndex } from '@/routes/admin/payments';
+import { index as refundsIndex } from '@/routes/admin/refunds';
+import { index as returnsIndex } from '@/routes/admin/returns';
 import { index as productsIndex } from '@/routes/admin/products';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
@@ -84,6 +88,24 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: paymentsIndex(),
                 icon: Wallet,
                 permission: 'payments.view',
+            },
+            // Retur and Refund are separate items because the brief's admin
+            // menu has them separate (brief.md §6), and because they answer
+            // different questions: which parcels need me, and which refunds
+            // have I promised but not sent. A branch admin holds
+            // `returns.view` for both; carrying a refund out is central
+            // (ADR-049), so the listing is readable and its buttons are not.
+            {
+                title: 'Retur',
+                href: returnsIndex(),
+                icon: Undo2,
+                permission: 'returns.view',
+            },
+            {
+                title: 'Refund',
+                href: refundsIndex(),
+                icon: Banknote,
+                permission: 'returns.view',
             },
         ],
     });

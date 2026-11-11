@@ -169,6 +169,8 @@ export type OrderDetail = OrderRow & {
         dispatch_shipment?: boolean;
         /** Whether a Click & Collect order may be handed over (P2-E2-T7). */
         confirm_pickup?: boolean;
+        /** Whether the customer may still ask to send goods back (P2-E4-T2). */
+        request_return?: boolean;
     };
 };
 
