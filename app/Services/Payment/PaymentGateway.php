@@ -4,8 +4,8 @@ namespace App\Services\Payment;
 
 use App\Exceptions\PaymentFailedException;
 use App\Models\Payment;
-use App\Services\Payment\Data\PaymentCallbackResult;
 use App\Services\Payment\Data\PaymentInstruction;
+use App\Services\Payment\Data\PaymentStatusResult;
 use App\Services\Payment\Data\RefundResult;
 
 /**
@@ -14,26 +14,26 @@ use App\Services\Payment\Data\RefundResult;
  * Three methods, one for each thing that can happen to a payment, and nothing
  * about screens or routes: an implementation is given a `Payment` row and
  * answers with a value object. That is the whole seam — `InitiatePayment`,
- * `HandlePaymentCallback` and the panel screens are written against this
- * interface, so `P2-E1-T5` added a gateway without any of them changing.
+ * `ReconcilePayment` and the panel screens are written against this
+ * interface, so a gateway can be added without any of them changing.
  *
- * Implementations must hold to three rules, because the actions above rely on
+ * **There is no callback method, and no webhook behind this interface**
+ * (ADR-053). A provider never tells the application anything: the application
+ * asks, through `inquire()`, with its own credentials. That leaves no
+ * unauthenticated endpoint for anybody to call, and no signature to get wrong.
+ *
+ * Implementations must hold to two rules, because the actions above rely on
  * them:
  *
  * 1. **No writes.** A driver reads the payment and talks to the outside world;
  *    persisting the result is the action's job, inside its own transaction.
  *    A driver that saved its own row would make a failed transaction a
  *    half-finished one.
- * 2. **`charge()` throws, `handleCallback()` does not.** A charge is a
- *    foreground request somebody is waiting on, so a failure is an exception
- *    with a sentence for the customer. A callback is a gateway's retry loop, so
- *    a failure is a `PaymentCallbackResult::rejected()` the controller can turn
- *    into a status code — a thrown exception would have the gateway retrying
- *    for hours.
- * 3. **`handleCallback()` is given nothing but the payload.** It verifies the
- *    signature itself and names the payment by our own `reference`; it must
- *    never trust an id from the URL or a payment handed to it, because the
- *    caller is an unauthenticated endpoint.
+ * 2. **`charge()` and `inquire()` throw when the provider cannot answer.** A
+ *    charge is a foreground request somebody is waiting on, so a failure is an
+ *    exception with a sentence for the customer. An inquiry that fails must
+ *    never be read as "unpaid", so it is an exception too rather than a
+ *    result that looks like one.
  */
 interface PaymentGateway
 {
@@ -45,11 +45,17 @@ interface PaymentGateway
     public function charge(Payment $payment): PaymentInstruction;
 
     /**
-     * Work out what an incoming callback means, verifying it first.
+     * Ask the provider what became of a payment.
      *
-     * @param  array<string, mixed>  $payload
+     * The only way a gateway payment's status ever reaches the application
+     * (ADR-053). The answer is trustworthy because it is read from the
+     * provider's own API with our credentials rather than handed to us.
+     * "Nothing has happened yet" is an `ignored()` result, not an error.
+     *
+     * @throws PaymentFailedException when the provider cannot be asked, so the
+     *                                caller can tell "still unpaid" from "unknown".
      */
-    public function handleCallback(array $payload): PaymentCallbackResult;
+    public function inquire(Payment $payment): PaymentStatusResult;
 
     /**
      * Ask for `$amount` of a settled payment to be sent back.

@@ -2,58 +2,51 @@
 
 namespace App\Services\Payment\Drivers;
 
+use App\Enums\PaymentMethodType;
 use App\Enums\PaymentTransactionStatus;
+use App\Exceptions\MidtransApiException;
 use App\Exceptions\PaymentFailedException;
 use App\Models\Payment;
-use App\Services\Payment\Data\PaymentCallbackResult;
 use App\Services\Payment\Data\PaymentInstruction;
+use App\Services\Payment\Data\PaymentStatusResult;
 use App\Services\Payment\Data\RefundResult;
+use App\Services\Payment\Midtrans\MidtransClient;
 use App\Services\Payment\PaymentGateway;
 use Carbon\CarbonInterface;
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
- * Midtrans, behind the same interface as a bank transfer (P2-E1-T5, ADR-004).
+ * Midtrans, behind the same interface as a bank transfer (P2-E1-T5, ADR-004,
+ * ADR-053).
  *
- * **Snap for every type**, rather than one Core API call per type. Snap issues
- * one transaction and returns a page the customer is sent to, and
- * `enabled_payments` narrows that page to the channels the chosen method is
- * about — so picking "QRIS" opens a QRIS page rather than a menu of nine
- * things. The alternative, Core API `/v2/charge` per type, means a different
- * request body and a different success shape for virtual accounts, QRIS and
- * each e-wallet, and three more places for the same bug to live. Snap is also
- * what Midtrans keeps current.
+ * **Core API, not Snap.** The customer is never sent to a page of Midtrans':
+ * `POST /v2/charge` issues the virtual account number, the QRIS code or the
+ * e-wallet link itself, and the shop's own order page shows it. That is one
+ * request body per kind of channel, which is the price — `channelFor()` is
+ * where it is paid, and the only place that knows a channel's vocabulary.
  *
+ * **No webhook, and so no signature.** The status of a transaction reaches
+ * the application one way: `inquire()` asks the Status API, with the server
+ * key, about a reference we issued. Nothing Midtrans sends is listened for.
+ *
+ * Every call goes through `MidtransClient`, which wraps the official SDK.
  * Nothing here is written to the database: this is a driver (see
- * `PaymentGateway`). The `payment_url` and the deadline it comes back with are
- * persisted by `InitiatePayment`, inside its transaction.
+ * `PaymentGateway`). What `charge()` returns is persisted by
+ * `InitiatePayment`, inside its transaction.
  *
  * **`transaction_details.order_id` is the payment's `reference`, not the order
  * number.** Midtrans refuses a second transaction under an id it has seen, so
  * keying on the order number would make every retry of a failed attempt fail
- * too; and the callback quotes the id back, so a per-attempt reference is what
- * lets a webhook find the row it is about by an exact match.
- *
- * **Signature verification is not optional.** The webhook is an
- * unauthenticated endpoint, and the signature is the only thing between it and
- * anyone marking their own order paid: `sha512(order_id + status_code +
- * gross_amount + server_key)`. A payload whose signature does not match is
- * rejected, logged, and never looked at again.
- *
- * Testing: every call goes through the `Http` facade, so the integration tests
- * drive it with `Http::fake()` and no sandbox credentials. That is deliberate —
- * the project has no Midtrans keys yet, and a driver that can only be tested
- * against a live sandbox is a driver that is not tested.
+ * too; and the Status API is asked by that id, so a per-attempt reference is
+ * what lets an answer be matched to exactly one row.
  */
 final class MidtransGateway implements PaymentGateway
 {
     /**
-     * The `transaction_status` values Midtrans sends, and what each one means
-     * to us.
+     * The `transaction_status` values Midtrans answers with, and what each one
+     * means to us.
      *
      * `capture` and `pending` are absent on purpose and handled below:
      * `capture` depends on `fraud_status`, and `pending` means the customer
@@ -74,84 +67,97 @@ final class MidtransGateway implements PaymentGateway
     ];
 
     /**
-     * Ask Snap for a transaction and return where to send the customer.
+     * The banks a virtual account can be charged through `bank_transfer`.
+     *
+     * Mandiri is absent because it is not a `bank_transfer` at all: Midtrans
+     * issues it as `echannel`, a bill key plus a biller code, which is a
+     * different thing for the customer to type and needs its own instructions.
+     *
+     * @var array<int, string>
+     */
+    private const VIRTUAL_ACCOUNT_BANKS = ['bca', 'bni', 'bri', 'permata', 'cimb'];
+
+    /**
+     * The timezone Midtrans writes `expiry_time` in, which carries no offset.
+     */
+    private const MIDTRANS_TIMEZONE = 'Asia/Jakarta';
+
+    public function __construct(private readonly MidtransClient $client) {}
+
+    /**
+     * Charge through the Core API and return what the customer must do.
      *
      * @throws PaymentFailedException
      */
     public function charge(Payment $payment): PaymentInstruction
     {
-        $response = $this->send(
-            fn (PendingRequest $request): Response => $request->post(
-                $this->snapUrl('/snap/v1/transactions'),
-                $this->snapBody($payment),
-            ),
-        );
+        $this->assertConfigured();
 
-        /** @var array<string, mixed> $body */
-        $body = $response->json() ?? [];
+        $params = $this->chargeBody($payment);
 
-        if (! $response->successful()) {
-            throw PaymentFailedException::gatewayRefused($this->errorDetail($body, $response->status()));
+        try {
+            $body = $this->client->charge($params);
+        } catch (MidtransApiException $failure) {
+            throw $this->asPaymentFailure($failure);
         }
 
-        $redirectUrl = $body['redirect_url'] ?? null;
-
-        if (! is_string($redirectUrl) || $redirectUrl === '') {
-            throw PaymentFailedException::gatewayRefused('balasan Snap tidak memuat tautan pembayaran.');
+        // Midtrans answers a charge it took with 201 ("pending") and puts a
+        // refusal in the same field, sometimes under an HTTP 200.
+        if (! in_array($this->stringFrom($body, 'status_code'), ['200', '201'], strict: true)) {
+            throw PaymentFailedException::gatewayRefused($this->errorDetail($body));
         }
 
-        return new PaymentInstruction(
-            paymentUrl: $redirectUrl,
-            expiresAt: $this->chargeDeadline($payment),
+        $instruction = new PaymentInstruction(
+            externalId: $this->stringFrom($body, 'transaction_id'),
+            vaNumber: $this->virtualAccountNumberFrom($body),
+            qrString: $this->stringFrom($body, 'qr_string'),
+            paymentUrl: self::actionUrl($body, 'deeplink-redirect'),
+            expiresAt: $this->expiryFrom($body),
             rawPayload: $body,
         );
+
+        if (! $instruction->hasActionable() && self::qrImageUrl($body) === null) {
+            throw PaymentFailedException::gatewayRefused('balasan Midtrans tidak memuat instruksi pembayaran.');
+        }
+
+        return $instruction;
     }
 
     /**
-     * Turn a notification into a fact, having first proved it is genuine.
+     * Ask the Core API for the transaction's status (`GET /v2/{order_id}/status`).
      *
-     * @param  array<string, mixed>  $payload
+     * The answer is trusted because it is the reply to a request we made over
+     * TLS with the server key. It is still required to name the reference that
+     * was asked about, so an answer about a different transaction is never
+     * applied.
+     *
+     * A 404 is reported as "nothing yet" rather than as a failure: it means
+     * Midtrans holds no transaction under that reference, which is true of an
+     * attempt whose charge never completed.
      */
-    public function handleCallback(array $payload): PaymentCallbackResult
+    public function inquire(Payment $payment): PaymentStatusResult
     {
-        $reference = $this->stringFrom($payload, 'order_id');
+        $this->assertConfigured();
 
-        if ($reference === null) {
-            return PaymentCallbackResult::rejected('Payload tidak memuat order_id.', $payload);
+        try {
+            $body = $this->client->status($payment->reference);
+        } catch (MidtransApiException $failure) {
+            if ($failure->isNotFound()) {
+                return PaymentStatusResult::ignored(
+                    $payment->reference,
+                    'Midtrans belum mencatat transaksi untuk pembayaran ini.',
+                    $failure->body,
+                );
+            }
+
+            throw $this->asPaymentFailure($failure);
         }
 
-        if (! $this->signatureMatches($payload)) {
-            Log::warning('Rejected a Midtrans callback whose signature did not match.', [
-                'reference' => $reference,
-                'transaction_status' => $this->stringFrom($payload, 'transaction_status'),
-            ]);
-
-            return PaymentCallbackResult::rejected('Signature callback tidak sah.', $payload);
+        if ($this->stringFrom($body, 'order_id') !== $payment->reference) {
+            throw PaymentFailedException::gatewayRefused($this->errorDetail($body));
         }
 
-        $transactionStatus = $this->stringFrom($payload, 'transaction_status');
-
-        if ($transactionStatus === null) {
-            return PaymentCallbackResult::rejected('Payload tidak memuat transaction_status.', $payload);
-        }
-
-        $status = $this->statusFor($transactionStatus, $this->stringFrom($payload, 'fraud_status'));
-
-        if (! $status instanceof PaymentTransactionStatus) {
-            return PaymentCallbackResult::ignored(
-                $reference,
-                "Status \"{$transactionStatus}\" belum mengubah apa pun pada pembayaran.",
-                $payload,
-            );
-        }
-
-        return PaymentCallbackResult::settled(
-            reference: $reference,
-            status: $status,
-            externalId: $this->stringFrom($payload, 'transaction_id'),
-            amount: $this->amountFrom($payload),
-            payload: $payload,
-        );
+        return $this->resultFor($payment->reference, $body);
     }
 
     /**
@@ -175,28 +181,25 @@ final class MidtransGateway implements PaymentGateway
         }
 
         try {
-            $response = $this->send(
-                fn (PendingRequest $request): Response => $request->post(
-                    $this->apiUrl("/v2/{$payment->reference}/refund"),
-                    [
-                        'refund_key' => "RFD-{$payment->getKey()}-{$amount}",
-                        'amount' => $amount,
-                        'reason' => "Refund pesanan {$payment->order->order_number}",
-                    ],
-                ),
-            );
-        } catch (PaymentFailedException $unreachable) {
-            return RefundResult::failed($amount, $unreachable->getMessage());
+            $this->assertConfigured();
+
+            $body = $this->client->refund($payment->reference, [
+                'refund_key' => "RFD-{$payment->getKey()}-{$amount}",
+                'amount' => $amount,
+                'reason' => "Refund pesanan {$payment->order->order_number}",
+            ]);
+        } catch (MidtransApiException $failure) {
+            return RefundResult::failed($amount, $this->asPaymentFailure($failure)->getMessage());
+        } catch (PaymentFailedException $unconfigured) {
+            return RefundResult::failed($amount, $unconfigured->getMessage());
         }
 
-        /** @var array<string, mixed> $body */
-        $body = $response->json() ?? [];
         $statusCode = $this->stringFrom($body, 'status_code');
 
         // Midtrans answers a refund with its own status code rather than with
         // the HTTP status, so a 200 carrying `412` is a refusal.
-        if (! $response->successful() || ! in_array($statusCode, ['200', '201', '202'], strict: true)) {
-            return RefundResult::failed($amount, $this->errorDetail($body, $response->status()));
+        if (! in_array($statusCode, ['200', '201', '202'], strict: true)) {
+            return RefundResult::failed($amount, $this->errorDetail($body));
         }
 
         $externalId = $this->stringFrom($body, 'refund_key') ?? $this->stringFrom($body, 'transaction_id');
@@ -207,21 +210,39 @@ final class MidtransGateway implements PaymentGateway
     }
 
     /**
-     * The Snap request body.
+     * The address of the QR image Midtrans renders for a charge, when the
+     * channel has one (QRIS and GoPay).
      *
-     * `item_details` is sent because without it Midtrans shows the customer a
-     * single unnamed line on its own page, and `gross_amount` must equal the
-     * sum of the lines or Snap refuses the transaction — so the method's fee
-     * is sent as a line of its own rather than folded into a price.
+     * Read from the charge answer rather than stored in a column of its own:
+     * it is only ever needed while the attempt is open, and the answer is
+     * what `payments.raw_payload` holds until the attempt closes. Showing
+     * Midtrans' own image also spares the storefront a QR-rendering library.
+     *
+     * @param  array<string, mixed>|null  $chargeAnswer
+     */
+    public static function qrImageUrl(?array $chargeAnswer): ?string
+    {
+        return self::actionUrl($chargeAnswer ?? [], 'generate-qr-code');
+    }
+
+    /**
+     * The Core API charge body.
+     *
+     * `item_details` is sent so the customer's banking or wallet app names
+     * what is being paid for, and `gross_amount` must equal the sum of the
+     * lines or Midtrans refuses the transaction — so the method's fee is sent
+     * as a line of its own rather than folded into a price.
      *
      * @return array<string, mixed>
+     *
+     * @throws PaymentFailedException
      */
-    private function snapBody(Payment $payment): array
+    private function chargeBody(Payment $payment): array
     {
         $order = $payment->order;
-        $enabled = $payment->paymentMethod->midtransEnabledPayments();
 
         $body = [
+            ...$this->channelFor($payment),
             'transaction_details' => [
                 'order_id' => $payment->reference,
                 'gross_amount' => $payment->amount,
@@ -234,21 +255,67 @@ final class MidtransGateway implements PaymentGateway
             'item_details' => $this->itemDetails($payment),
         ];
 
-        if ($enabled !== []) {
-            $body['enabled_payments'] = $enabled;
-        }
-
-        $minutes = $this->minutesUntil($this->chargeDeadline($payment));
+        $minutes = $this->minutesUntil($payment->expires_at);
 
         if ($minutes !== null) {
-            $body['expiry'] = ['unit' => 'minute', 'duration' => $minutes];
+            $body['custom_expiry'] = ['expiry_duration' => $minutes, 'unit' => 'minute'];
         }
 
         return $body;
     }
 
     /**
-     * The lines Snap shows, adding up to exactly `gross_amount`.
+     * The part of the charge body that says *how* the money is collected.
+     *
+     * Decided by the method's `type` and narrowed by its `provider_code` — the
+     * bank for a virtual account, the wallet for an e-wallet. A method this
+     * cannot translate is refused in words rather than sent to Midtrans as a
+     * guess, because the default `payment_type` of a charge is a credit card.
+     *
+     * QRIS is issued through whichever acquirer the Midtrans account has
+     * switched on, which is the account's fact rather than the method's — so
+     * it is a setting, and an account without that acquirer is refused by
+     * Midtrans in its own words.
+     *
+     * The e-wallets are told where to send the customer back to: they pay in
+     * another app, and without a callback they are left there.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws PaymentFailedException
+     */
+    private function channelFor(Payment $payment): array
+    {
+        $method = $payment->paymentMethod;
+        $provider = mb_strtolower((string) $method->provider_code);
+        $returnUrl = route('shop.payments.return', ['order_id' => $payment->reference]);
+
+        return match (true) {
+            $method->type === PaymentMethodType::VirtualAccount
+                && in_array($provider, self::VIRTUAL_ACCOUNT_BANKS, strict: true) => [
+                    'payment_type' => 'bank_transfer',
+                    'bank_transfer' => ['bank' => $provider],
+                ],
+            $method->type === PaymentMethodType::Qris => [
+                'payment_type' => 'qris',
+                'qris' => ['acquirer' => (string) config('services.midtrans.qris_acquirer', 'gopay')],
+            ],
+            $method->type === PaymentMethodType::EWallet && $provider === 'gopay' => [
+                'payment_type' => 'gopay',
+                'gopay' => ['enable_callback' => true, 'callback_url' => $returnUrl],
+            ],
+            $method->type === PaymentMethodType::EWallet && $provider === 'shopeepay' => [
+                'payment_type' => 'shopeepay',
+                'shopeepay' => ['callback_url' => $returnUrl],
+            ],
+            default => throw PaymentFailedException::unsupported(
+                "Metode pembayaran {$method->name} belum dapat diproses lewat Midtrans. Pilih metode pembayaran lain.",
+            ),
+        };
+    }
+
+    /**
+     * The lines Midtrans is sent, adding up to exactly `gross_amount`.
      *
      * The order's own items are **not** itemised here: discounts, shipping and
      * tax would each need a line of their own and the total would have to be
@@ -281,23 +348,44 @@ final class MidtransGateway implements PaymentGateway
     }
 
     /**
-     * The deadline to ask Snap for: the payment's own, which `InitiatePayment`
-     * already derived from the order's stock hold (ADR-041).
+     * What a status answer says about a payment.
      *
-     * Asking Snap for a longer window than the hold would have Midtrans accept
-     * money for goods that had gone back on sale.
+     * @param  array<string, mixed>  $payload
      */
-    private function chargeDeadline(Payment $payment): ?CarbonInterface
+    private function resultFor(string $reference, array $payload): PaymentStatusResult
     {
-        return $payment->expires_at;
+        $transactionStatus = $this->stringFrom($payload, 'transaction_status');
+
+        if ($transactionStatus === null) {
+            return PaymentStatusResult::rejected('Payload tidak memuat transaction_status.', $payload);
+        }
+
+        $status = $this->statusFor($transactionStatus, $this->stringFrom($payload, 'fraud_status'));
+
+        if (! $status instanceof PaymentTransactionStatus) {
+            return PaymentStatusResult::ignored(
+                $reference,
+                "Status \"{$transactionStatus}\" belum mengubah apa pun pada pembayaran.",
+                $payload,
+            );
+        }
+
+        return PaymentStatusResult::settled(
+            reference: $reference,
+            status: $status,
+            externalId: $this->stringFrom($payload, 'transaction_id'),
+            amount: $this->amountFrom($payload),
+            payload: $payload,
+        );
     }
 
     /**
      * Whole minutes from now until the deadline, or null when there is none.
      *
-     * At least one: Snap rejects a zero duration, and a deadline that has
-     * already passed is a race `InitiatePayment` has lost rather than something
-     * to encode as a negative.
+     * Rounded **down**, so Midtrans closes the transaction no later than the
+     * stock hold does: rounding up left a minute in which Midtrans would take
+     * money for an order the sweep had already expired (`PAY-06`). At least
+     * one, because Midtrans rejects a zero duration.
      */
     private function minutesUntil(?CarbonInterface $deadline): ?int
     {
@@ -305,43 +393,76 @@ final class MidtransGateway implements PaymentGateway
             return null;
         }
 
-        return max(1, (int) ceil(now()->diffInMinutes($deadline, absolute: false)));
+        return max(1, (int) floor(now()->diffInMinutes($deadline, absolute: false)));
     }
 
     /**
-     * Whether the payload was signed with our server key.
+     * When Midtrans says the transaction closes, or null when it does not say.
      *
-     * The three fields are concatenated in the order Midtrans documents, and
-     * `hash_equals` is used rather than `===` so the comparison does not leak
-     * how much of a forged signature was correct.
+     * `InitiatePayment` keeps the earlier of this and the order's own deadline
+     * (ADR-041), so a channel that closes sooner than was asked is believed.
      *
-     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $body
      */
-    private function signatureMatches(array $payload): bool
+    private function expiryFrom(array $body): ?CarbonInterface
     {
-        $signature = $this->stringFrom($payload, 'signature_key');
-        $serverKey = $this->serverKey();
+        $expiry = $this->stringFrom($body, 'expiry_time');
 
-        if ($serverKey === null) {
-            // Without a key there is nothing to verify against. Refuse, unless
-            // a developer has explicitly asked to replay captured payloads on
-            // a machine that is not production.
-            return (bool) config('services.midtrans.tolerate_unsigned_webhook') && ! app()->isProduction();
+        if ($expiry === null) {
+            return null;
         }
 
-        if ($signature === null) {
-            return false;
+        try {
+            return Carbon::parse($expiry, self::MIDTRANS_TIMEZONE)->setTimezone(config('app.timezone'));
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * The number the customer transfers to.
+     *
+     * Permata answers in a field of its own; every other bank answers in the
+     * `va_numbers` list.
+     *
+     * @param  array<string, mixed>  $body
+     */
+    private function virtualAccountNumberFrom(array $body): ?string
+    {
+        $numbers = $body['va_numbers'] ?? null;
+
+        if (is_array($numbers) && is_array($numbers[0] ?? null)) {
+            return $this->stringFrom($numbers[0], 'va_number');
         }
 
-        $expected = hash('sha512', sprintf(
-            '%s%s%s%s',
-            $this->stringFrom($payload, 'order_id') ?? '',
-            $this->stringFrom($payload, 'status_code') ?? '',
-            $this->stringFrom($payload, 'gross_amount') ?? '',
-            $serverKey,
-        ));
+        return $this->stringFrom($body, 'permata_va_number');
+    }
 
-        return hash_equals($expected, $signature);
+    /**
+     * The URL of one of the `actions` a charge answer lists, by the start of
+     * its name — Midtrans has versioned them (`generate-qr-code-v2`).
+     *
+     * @param  array<string, mixed>  $body
+     */
+    private static function actionUrl(array $body, string $name): ?string
+    {
+        $actions = $body['actions'] ?? null;
+
+        if (! is_array($actions)) {
+            return null;
+        }
+
+        foreach ($actions as $action) {
+            if (is_array($action)
+                && is_string($action['name'] ?? null)
+                && str_starts_with($action['name'], $name)
+                && is_string($action['url'] ?? null)
+                && $action['url'] !== '') {
+                return $action['url'];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -366,34 +487,33 @@ final class MidtransGateway implements PaymentGateway
     }
 
     /**
-     * Send a request, turning a dead connection into a sentence.
-     *
-     * @param  callable(PendingRequest): Response  $send
+     * Refuse, in words, when there is no server key to call Midtrans with.
      *
      * @throws PaymentFailedException
      */
-    private function send(callable $send): Response
+    private function assertConfigured(): void
     {
-        $serverKey = $this->serverKey();
+        $key = config('services.midtrans.server_key');
 
-        if ($serverKey === null) {
+        if (! is_string($key) || $key === '') {
             throw PaymentFailedException::unsupported(
                 'Pembayaran Midtrans belum dikonfigurasi (MIDTRANS_SERVER_KEY kosong). Pilih metode pembayaran lain.',
             );
         }
+    }
 
-        $request = Http::withBasicAuth($serverKey, '')
-            ->acceptJson()
-            ->asJson()
-            ->timeout((int) config('services.midtrans.timeout', 15));
+    /**
+     * A failed Midtrans call as the sentence a customer or a log reads.
+     */
+    private function asPaymentFailure(MidtransApiException $failure): PaymentFailedException
+    {
+        if ($failure->isUnreachable()) {
+            Log::warning('Midtrans could not be reached.', ['message' => $failure->getPrevious()?->getMessage()]);
 
-        try {
-            return $send($request);
-        } catch (ConnectionException $unreachable) {
-            Log::warning('Midtrans could not be reached.', ['message' => $unreachable->getMessage()]);
-
-            throw PaymentFailedException::gatewayUnreachable();
+            return PaymentFailedException::gatewayUnreachable();
         }
+
+        return PaymentFailedException::gatewayRefused($this->errorDetail($failure->body, $failure->status));
     }
 
     /**
@@ -401,17 +521,23 @@ final class MidtransGateway implements PaymentGateway
      *
      * @param  array<string, mixed>  $body
      */
-    private function errorDetail(array $body, int $httpStatus): string
+    private function errorDetail(array $body, ?int $httpStatus = null): string
     {
-        $messages = $body['error_messages'] ?? null;
+        foreach (['validation_messages', 'error_messages'] as $key) {
+            $messages = $body[$key] ?? null;
 
-        if (is_array($messages) && $messages !== []) {
-            return implode(' ', array_map(static fn (mixed $message): string => (string) $message, $messages));
+            if (is_array($messages) && $messages !== []) {
+                return implode(' ', array_map(static fn (mixed $message): string => (string) $message, $messages));
+            }
         }
 
         $message = $this->stringFrom($body, 'status_message');
 
-        return $message ?? "HTTP {$httpStatus}.";
+        if ($message !== null) {
+            return str_ends_with($message, '.') ? $message : "{$message}.";
+        }
+
+        return $httpStatus === null ? 'balasan tidak dapat dibaca.' : "HTTP {$httpStatus}.";
     }
 
     /**
@@ -447,22 +573,5 @@ final class MidtransGateway implements PaymentGateway
         }
 
         return is_int($value) || is_float($value) ? (string) $value : null;
-    }
-
-    private function serverKey(): ?string
-    {
-        $key = config('services.midtrans.server_key');
-
-        return is_string($key) && $key !== '' ? $key : null;
-    }
-
-    private function snapUrl(string $path): string
-    {
-        return rtrim((string) config('services.midtrans.snap_base_url'), '/').$path;
-    }
-
-    private function apiUrl(string $path): string
-    {
-        return rtrim((string) config('services.midtrans.api_base_url'), '/').$path;
     }
 }

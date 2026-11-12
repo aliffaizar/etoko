@@ -141,6 +141,7 @@ final class PaymentPresenter
             'bank_account' => $method?->bankAccount(),
             'va_number' => $payment->va_number,
             'qr_string' => $payment->qr_string,
+            'qr_image_url' => $payment->qrImageUrl(),
             'payment_url' => $payment->payment_url,
             'expires_at' => $payment->expires_at?->toIso8601String(),
             'has_overrun' => $payment->hasOverrun(),

@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { formatRupiah, formatWeight } from '@/lib/format';
+import { formatDuration, formatRupiah, formatWeight } from '@/lib/format';
 import account from '@/routes/shop/account';
 import checkout from '@/routes/shop/checkout';
 import { index as cartIndex } from '@/routes/shop/cart';
@@ -261,8 +261,8 @@ export default function Checkout({
                     <h1 className="text-2xl font-semibold">Checkout</h1>
                     <p className="text-sm text-muted-foreground">
                         Periksa pesanan Anda, lalu konfirmasi. Stok akan ditahan{' '}
-                        {reservationMinutes} menit untuk Anda selesaikan
-                        pembayarannya.
+                        {formatDuration(reservationMinutes)} untuk Anda
+                        selesaikan pembayarannya.
                     </p>
                 </div>
 
@@ -685,7 +685,7 @@ export default function Checkout({
                             />
                             {selectedMethod?.collected_on_delivery
                                 ? 'Pesanan COD langsung diproses cabang. Siapkan uang tunai sesuai total saat kurir tiba.'
-                                : `Selesaikan pembayaran dalam ${reservationMinutes} menit setelah pesanan dibuat, selama stok masih ditahan untuk Anda.`}
+                                : `Selesaikan pembayaran dalam ${formatDuration(reservationMinutes)} setelah pesanan dibuat, selama stok masih ditahan untuk Anda.`}
                         </p>
                     </aside>
                 </div>

@@ -3,13 +3,18 @@
 use App\Actions\Order\ReserveStock;
 use App\Actions\Order\TransitionOrderStatus;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethodType;
+use App\Enums\PaymentTransactionStatus;
 use App\Enums\ReservationStatus;
 use App\Enums\ShipmentStatus;
+use App\Exceptions\MidtransApiException;
 use App\Models\Branch;
 use App\Models\Courier;
 use App\Models\CourierService;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Shipment;
@@ -155,6 +160,79 @@ describe('one order', function () {
             ->assertInertia(fn ($page) => $page
                 ->where('order.can.cancel', false)
                 ->where('cancel_blocked_reason', 'Pesanan sudah mulai diproses. Hubungi cabang untuk membatalkannya.'));
+    });
+});
+
+describe('an order paid at Midtrans (ADR-052, ADR-053)', function () {
+    beforeEach(function () {
+        config()->set('services.midtrans.server_key', 'SB-Mid-server-FAKEKEY');
+        config()->set('services.midtrans.api_base_url', 'https://api.sandbox.midtrans.com');
+    });
+
+    it('shows the order as paid once Midtrans confirms the settlement', function () {
+        $order = customerOrderHoldingStock();
+        $payment = Payment::factory()->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans()->create())
+            ->create();
+        fakeMidtrans()->statusAnswers(midtransStatusAnswer($payment));
+
+        $this->actingAs($this->customer)
+            ->get(route('shop.account.orders.show', $order))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('order.status', OrderStatus::Paid->value)
+                ->where('payment', null));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Paid)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Success);
+    });
+
+    it('shows the QR code Midtrans rendered while the attempt is still unpaid', function () {
+        $order = customerOrderHoldingStock();
+        $payment = Payment::factory()->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans(PaymentMethodType::Qris)->create())
+            ->create(['raw_payload' => ['actions' => [[
+                'name' => 'generate-qr-code',
+                'method' => 'GET',
+                'url' => 'https://api.sandbox.midtrans.com/v2/qris/mt-1/qr-code',
+            ]]]]);
+        fakeMidtrans()->statusAnswers(midtransStatusAnswer($payment, 'pending'));
+
+        $this->actingAs($this->customer)
+            ->get(route('shop.account.orders.show', $order))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('payment.status', PaymentTransactionStatus::Pending->value)
+                ->where('payment.qr_image_url', 'https://api.sandbox.midtrans.com/v2/qris/mt-1/qr-code'));
+    });
+
+    it('still shows the order as awaiting payment when Midtrans cannot be reached', function () {
+        $order = customerOrderHoldingStock();
+        $payment = Payment::factory()->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans()->create())
+            ->create();
+        fakeMidtrans()->statusAnswers(MidtransApiException::unreachable());
+
+        $this->actingAs($this->customer)
+            ->get(route('shop.account.orders.show', $order))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('order.status', OrderStatus::PendingPayment->value));
+
+        expect($payment->fresh()->status)->toBe(PaymentTransactionStatus::Pending);
+    });
+
+    it('does not ask Midtrans about another customer\'s order', function () {
+        $order = customerOrderHoldingStock();
+        Payment::factory()->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans()->create())
+            ->create();
+        $midtrans = fakeMidtrans();
+
+        $this->actingAs(User::factory()->customer()->create())
+            ->get(route('shop.account.orders.show', $order))
+            ->assertNotFound();
+
+        expect($midtrans->statusChecks)->toBe([]);
     });
 });
 

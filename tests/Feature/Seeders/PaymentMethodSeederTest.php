@@ -12,7 +12,14 @@ use Database\Seeders\PaymentMethodSeeder;
  * a checkout that cannot be completed — so this runs outside the
  * `isProduction()` guard, and re-running it must not undo a shop's own
  * decisions.
+ *
+ * Online payment is Midtrans and only Midtrans (ADR-051); what stands beside it
+ * is money handed over in person. The key is set explicitly in each test that
+ * depends on it, because whether the gateway rows arrive switched on is now a
+ * function of configuration rather than a constant.
  */
+
+const SEEDER_MIDTRANS_KEY = 'SB-Mid-server-SEEDERKEY';
 
 it('installs a method for every way of paying the brief asks for', function () {
     $this->seed(PaymentMethodSeeder::class);
@@ -20,7 +27,6 @@ it('installs a method for every way of paying the brief asks for', function () {
     $types = PaymentMethod::query()->pluck('type')->map->value->unique()->sort()->values();
 
     expect($types->all())->toBe([
-        PaymentMethodType::BankTransfer->value,
         PaymentMethodType::Cash->value,
         PaymentMethodType::Cod->value,
         PaymentMethodType::EWallet->value,
@@ -29,7 +35,9 @@ it('installs a method for every way of paying the brief asks for', function () {
     ]);
 });
 
-it('leaves the gateway methods switched off until there are keys for them', function () {
+it('leaves the gateway methods switched off when there is no key for them', function () {
+    config()->set('services.midtrans.server_key', null);
+
     $this->seed(PaymentMethodSeeder::class);
 
     $midtrans = PaymentMethod::query()->where('driver', PaymentDriver::Midtrans)->get();
@@ -37,6 +45,42 @@ it('leaves the gateway methods switched off until there are keys for them', func
     expect($midtrans)->not->toBeEmpty()
         ->and($midtrans->every(fn (PaymentMethod $method): bool => $method->is_active === false))
         ->toBeTrue();
+});
+
+it('switches the gateway methods on when a key is configured', function () {
+    config()->set('services.midtrans.server_key', SEEDER_MIDTRANS_KEY);
+
+    $this->seed(PaymentMethodSeeder::class);
+
+    $midtrans = PaymentMethod::query()->where('driver', PaymentDriver::Midtrans)->get();
+
+    expect($midtrans)->toHaveCount(6)
+        ->and($midtrans->every(fn (PaymentMethod $method): bool => $method->is_active === true))
+        ->toBeTrue();
+});
+
+it('installs no manual bank transfer method', function () {
+    config()->set('services.midtrans.server_key', SEEDER_MIDTRANS_KEY);
+
+    $this->seed(PaymentMethodSeeder::class);
+
+    expect(PaymentMethod::query()->where('type', PaymentMethodType::BankTransfer)->exists())->toBeFalse();
+});
+
+it('leaves a pickup order payable, which is what a gateway key buys', function () {
+    config()->set('services.midtrans.server_key', SEEDER_MIDTRANS_KEY);
+
+    $this->seed(PaymentMethodSeeder::class);
+
+    // COD is fenced to deliveries, so without the gateway rows switched on a
+    // Click & Collect order would have nothing to pay with at all.
+    $online = PaymentMethod::query()
+        ->active()
+        ->get()
+        ->filter(fn (PaymentMethod $method): bool => $method->type->isAvailableOnline()
+            && $method->allowedFulfillmentTypes() !== ['delivery']);
+
+    expect($online)->not->toBeEmpty();
 });
 
 it('switches on the methods that need no keys', function () {
@@ -55,13 +99,12 @@ it('fences COD to deliveries, with a ceiling', function () {
         ->and($cod->max_amount)->toBeGreaterThan(0);
 });
 
-it('gives a manual transfer an account to transfer into, and says it is a placeholder', function () {
+it('says in words what a COD customer has to have ready', function () {
     $this->seed(PaymentMethodSeeder::class);
 
-    $bca = PaymentMethod::query()->where('code', 'bank-transfer-bca')->sole();
+    $cod = PaymentMethod::query()->where('code', 'cod')->sole();
 
-    expect($bca->bankAccount())->not->toBeNull()
-        ->and($bca->instructions)->toContain('contoh');
+    expect($cod->instructions)->toContain('tunai');
 });
 
 it('adds nothing on a second run', function () {
@@ -74,27 +117,25 @@ it('adds nothing on a second run', function () {
 });
 
 it('does not undo the shop own decisions when re-run', function () {
+    config()->set('services.midtrans.server_key', SEEDER_MIDTRANS_KEY);
+
     $this->seed(PaymentMethodSeeder::class);
 
-    $bca = PaymentMethod::query()->where('code', 'bank-transfer-bca')->sole();
-    $bca->update([
+    $va = PaymentMethod::query()->where('code', 'midtrans-va')->sole();
+    $va->update([
         'is_active' => false,
         'sort_order' => 999,
-        'config' => ['bank' => [
-            'name' => 'BCA',
-            'account_number' => '1122334455',
-            'account_holder' => 'PT Toko Sungguhan',
-        ]],
+        'config' => ['branch_ids' => [7]],
     ]);
 
     $this->seed(PaymentMethodSeeder::class);
-    $bca->refresh();
+    $va->refresh();
 
-    // A real account number must survive re-seeding; so must a method the shop
-    // has deliberately turned off.
-    expect($bca->is_active)->toBeFalse()
-        ->and($bca->sort_order)->toBe(999)
-        ->and($bca->bankAccount()['account_number'])->toBe('1122334455');
+    // A method the shop has deliberately turned off must stay off even though
+    // the key is configured, and the branches it was fenced to must survive too.
+    expect($va->is_active)->toBeFalse()
+        ->and($va->sort_order)->toBe(999)
+        ->and($va->allowedBranchIds())->toBe([7]);
 });
 
 it('does refresh the parts that are the application own (the name and the words)', function () {

@@ -14,7 +14,7 @@ use Illuminate\Contracts\Container\Container;
  * Resolves the gateway that carries out a payment (P2-E1-T2, ADR-004).
  *
  * The one place that knows which class serves which `payment_methods.driver`
- * value. Everything else — the actions, the controllers, the webhook — is
+ * value. Everything else — the actions, the controllers, the jobs — is
  * written against `PaymentGateway` and never names a driver, which is what
  * made adding Midtrans in `P2-E1-T5` a matter of one `match` arm.
  *

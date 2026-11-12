@@ -40,7 +40,7 @@ use Illuminate\Support\Facades\Log;
  *
  * The row is created **before** the gateway is called because the gateway has
  * to be told an id to key its transaction on, and that id has to be one we can
- * find a payment by when the callback arrives. An attempt whose charge then
+ * ask the gateway about afterwards. An attempt whose charge then
  * fails is left as a failed row rather than deleted: "we asked and it was
  * refused" is a thing support needs to see.
  *
@@ -94,8 +94,8 @@ final class InitiatePayment
      * Refuse an order there is nothing to collect for.
      *
      * Checked before anything is written, and checked again under the order's
-     * row lock in `open()` — the gap between the two is where a webhook
-     * settling the previous attempt would land.
+     * row lock in `open()` — the gap between the two is where a
+     * status check settling the previous attempt would land.
      *
      * @throws PaymentFailedException
      */
@@ -130,7 +130,7 @@ final class InitiatePayment
      * Write the attempt, closing any that was still waiting.
      *
      * The order is re-read under its row lock, which is what makes the second
-     * payability check meaningful: a webhook that settled the previous attempt
+     * payability check meaningful: a status check that settled the previous attempt
      * between `assertPayable()` and here would have moved the order on, and
      * opening a second ask for money already received is how a customer ends
      * up paying twice.
@@ -236,7 +236,7 @@ final class InitiatePayment
      * The order, re-read and locked for this transaction.
      *
      * Read across branches on purpose: a customer paying for their own order
-     * has no branch context at all, and so does the webhook worker.
+     * has no branch context at all, and neither does the queue worker.
      */
     private function lock(Order $order): Order
     {

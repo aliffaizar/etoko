@@ -92,6 +92,8 @@ export type CustomerPayment = {
     bank_account: PaymentBankAccount | null;
     va_number: string | null;
     qr_string: string | null;
+    /** The QR picture the gateway rendered (QRIS, GoPay), while the attempt is open. */
+    qr_image_url: string | null;
     payment_url: string | null;
     expires_at: string | null;
     has_overrun: boolean;

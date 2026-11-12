@@ -4,8 +4,10 @@ namespace App\Models;
 
 use App\Concerns\Auditable;
 use App\Concerns\BelongsToBranch;
+use App\Enums\PaymentDriver;
 use App\Enums\PaymentMethodType;
 use App\Enums\PaymentTransactionStatus;
+use App\Services\Payment\Drivers\MidtransGateway;
 use Carbon\CarbonInterface;
 use Database\Factories\PaymentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -166,6 +168,19 @@ class Payment extends Model
     }
 
     /**
+     * The QR image the provider rendered for this attempt, while it is open.
+     *
+     * QRIS and GoPay are paid by scanning, and Midtrans serves the picture
+     * itself; the address is part of the charge answer kept in `raw_payload`.
+     * Null once the attempt has closed — there is nothing left to scan, and
+     * the payload has by then been replaced by the provider's last word.
+     */
+    public function qrImageUrl(): ?string
+    {
+        return $this->isOpen() ? MidtransGateway::qrImageUrl($this->raw_payload) : null;
+    }
+
+    /**
      * Whether the customer may still upload a receipt for this attempt.
      */
     public function acceptsProof(): bool
@@ -239,6 +254,24 @@ class Payment extends Model
         return $query->open()
             ->whereNotNull('expires_at')
             ->where('expires_at', '<=', $asOf ?? now());
+    }
+
+    /**
+     * Open attempts whose status only a provider can tell us (ADR-053).
+     *
+     * Manual methods are left out: a COD or a counter payment is confirmed by
+     * a person, and there is nobody to ask.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    #[Scope]
+    protected function awaitingProvider(Builder $query): Builder
+    {
+        return $query->open()->whereHas(
+            'paymentMethod',
+            fn (Builder $method) => $method->where('driver', '!=', PaymentDriver::Manual),
+        );
     }
 
     /**

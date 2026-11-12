@@ -12,13 +12,19 @@ return [
     | while a customer finishes paying; `ExpireStockReservations` gives it back
     | once this has passed (P1-E7-T3).
     |
-    | Fifteen minutes is the figure in docs/02-architecture.md §2. Shorter and
-    | a slow bank transfer loses its goods; longer and an abandoned basket
-    | keeps them off the shelf for an afternoon.
+    | It is also, by construction, how long the customer has to pay: a payment
+    | attempt's deadline is its order's hold (ADR-041), so this is the one
+    | number behind both.
+    |
+    | One day (ADR-054). A virtual account is often paid hours after it is
+    | issued, and the shorter window this used to be expired orders whose
+    | customers were still on their way to pay. The cost is the other side of
+    | the same number: an abandoned checkout now keeps its units off the shelf
+    | for a day rather than a quarter of an hour.
     |
     */
 
-    'reservation_minutes' => (int) env('SHOP_RESERVATION_MINUTES', 15),
+    'reservation_minutes' => (int) env('SHOP_RESERVATION_MINUTES', 1440),
 
     /*
     |--------------------------------------------------------------------------

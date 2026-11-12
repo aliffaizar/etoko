@@ -106,7 +106,7 @@ final class FailPayment
     /**
      * The attempt, re-read and locked for this transaction.
      *
-     * Read across branches: the webhook worker has no branch context, and the
+     * Read across branches: the queue worker has no branch context, and the
      * key already identifies the row.
      */
     private function lock(Payment $payment): Payment

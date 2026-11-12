@@ -2,129 +2,71 @@
 
 namespace App\Actions\Payment;
 
-use App\Enums\PaymentDriver;
 use App\Enums\PaymentStatus;
 use App\Enums\PaymentTransactionStatus;
 use App\Exceptions\PaymentFailedException;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Scopes\BranchScope;
-use App\Services\Payment\Data\PaymentCallbackResult;
-use App\Services\Payment\PaymentManager;
+use App\Services\Payment\Data\PaymentStatusResult;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Turns a gateway's notification into a settled order (P2-E1-T6).
+ * Applies what a provider said about a payment to the payment and its order
+ * (P2-E1-T6, ADR-053).
  *
- * The endpoint behind this is unauthenticated and reachable by anybody, so
- * every step here is written as though the payload were hostile:
+ * The one place a gateway's answer becomes a settled order, a failed attempt
+ * or a recorded refund. It is reached only through `ReconcilePayment`, which
+ * asked the provider itself, so the answer is authentic and `$payment` is the
+ * attempt it names. Two things are still checked here, because they are about
+ * the answer rather than about who sent it:
  *
- * 1. **The driver verifies the signature** before anything else, and a payload
- *    that fails is rejected without a database read. That check is the only
- *    thing between this route and somebody marking their own order paid.
- * 2. **The payment is found by our own `reference`**, never by an id from the
- *    URL or the body's own idea of which order it is.
- * 3. **The driver has to match the payment's method.** A Midtrans
- *    notification must not settle a bank transfer, even with a valid Midtrans
- *    signature: the two are different money, and the cross-driver case is
- *    exactly what an attacker with one valid sandbox signature would try.
- * 4. **The amount has to match.** A genuine notification about a part payment
- *    must not mark an order paid in full. The signature proves the payload is
- *    ours; this proves it is about the whole bill.
+ * 1. **The amount has to match.** A genuine answer about a part payment must
+ *    not mark an order paid in full.
+ * 2. **Idempotency is by state.** The payment's own row is the record: an
+ *    answer whose outcome the attempt has already reached does nothing, and
+ *    one arriving for an attempt that has finished differently is recorded and
+ *    logged loudly rather than applied. The order page and two scheduled jobs
+ *    all ask about the same attempt, so "already handled" is the common case.
  *
- * **Idempotency is by state, not by a log of event ids.** The payment's own
- * row is the record: a callback whose outcome the attempt has already reached
- * is accepted and does nothing, and one arriving for an attempt that has
- * finished differently is accepted, recorded and logged loudly rather than
- * applied. Gateways retry until they are answered with a 2xx, so "already
- * handled" has to be a success rather than an error; answering 500 to a
- * duplicate would have Midtrans redelivering it for hours.
- *
- * Every payload reaching a known payment is stored on `payments.raw_payload`,
- * replacing the previous one. The *history* of notifications is in the
- * application log rather than the database, which is a deliberate limit: it is
- * enough to reconstruct a dispute and not a growing JSON column nobody prunes.
+ * Every answer applied here is stored on `payments.raw_payload`, replacing
+ * the previous one. The *history* is in the application log rather than the
+ * database, which is a deliberate limit: it is enough to reconstruct a dispute
+ * and not a growing JSON column nobody prunes.
  */
-final class HandlePaymentCallback
+final class ApplyPaymentStatus
 {
     public function __construct(
-        private readonly PaymentManager $gateways,
         private readonly VerifyPayment $verifyPayment,
         private readonly FailPayment $failPayment,
         private readonly ExpirePayment $expirePayment,
     ) {}
 
     /**
-     * Act on a notification from `$driver`.
+     * Apply what a provider said about `$payment`.
      *
-     * Returns the result the controller turns into a status code. Nothing is
-     * thrown for a bad payload: a gateway cannot read an exception, and an
-     * unanswered callback is a callback that comes back.
-     *
-     * @param  array<string, mixed>  $payload
+     * The caller is responsible for the result being authentic and for
+     * `$payment` being the attempt it names.
      */
-    public function handle(PaymentDriver $driver, array $payload): PaymentCallbackResult
+    public function handle(Payment $payment, PaymentStatusResult $result): PaymentStatusResult
     {
-        try {
-            $result = $this->gateways->driver($driver)->handleCallback($payload);
-        } catch (PaymentFailedException $unsupported) {
-            return PaymentCallbackResult::rejected($unsupported->getMessage(), $payload);
-        }
-
-        if (! $result->accepted || $result->reference === null) {
-            Log::warning('Rejected a payment callback.', [
-                'driver' => $driver->value,
-                'reason' => $result->reason,
-            ]);
-
-            return $result;
-        }
-
-        $payment = Payment::withoutGlobalScope(BranchScope::class)
-            ->where('reference', $result->reference)
-            ->with(['order', 'paymentMethod'])
-            ->first();
-
-        if (! $payment instanceof Payment) {
-            Log::warning('Received a payment callback for an unknown reference.', [
-                'driver' => $driver->value,
-                'reference' => $result->reference,
-            ]);
-
-            return PaymentCallbackResult::rejected(
-                "Tidak ada pembayaran dengan referensi {$result->reference}.",
-                $payload,
-            );
-        }
-
-        if ($payment->paymentMethod->driver !== $driver) {
-            Log::warning('Received a payment callback from the wrong driver.', [
-                'driver' => $driver->value,
-                'reference' => $result->reference,
-                'payment_driver' => $payment->paymentMethod->driver->value,
-            ]);
-
-            return PaymentCallbackResult::rejected(
-                'Referensi pembayaran ini bukan milik penyedia pembayaran tersebut.',
-                $payload,
-            );
-        }
+        $payload = $result->payload;
 
         $this->recordPayload($payment, $result);
 
         if ($mismatch = $this->amountMismatch($payment, $result)) {
-            Log::warning('Received a payment callback whose amount did not match.', [
+            Log::warning('Received a payment status answer whose amount did not match.', [
                 'reference' => $payment->reference,
                 'expected' => $payment->amount,
                 'received' => $result->amount,
             ]);
 
-            return PaymentCallbackResult::rejected($mismatch, $payload);
+            return PaymentStatusResult::rejected($mismatch, $payload);
         }
 
         if (! $result->changesState()) {
-            Log::info('Recorded a payment callback that changed nothing.', [
+            Log::info('Recorded a payment status answer that changed nothing.', [
                 'reference' => $payment->reference,
                 'reason' => $result->reason,
             ]);
@@ -142,7 +84,7 @@ final class HandlePaymentCallback
      * unexpected status still leaves the evidence behind — the payload is most
      * valuable precisely when something did not go to plan.
      */
-    private function recordPayload(Payment $payment, PaymentCallbackResult $result): void
+    private function recordPayload(Payment $payment, PaymentStatusResult $result): void
     {
         $payment->update(array_filter(
             [
@@ -154,28 +96,28 @@ final class HandlePaymentCallback
     }
 
     /**
-     * Why the figure in the callback is not the figure we asked for, or null.
+     * Why the figure the provider reports is not the figure we asked for, or null.
      *
-     * A callback with no amount at all is not treated as a mismatch: some
+     * An answer with no amount at all is not treated as a mismatch: some
      * gateway events carry none, and refusing those would leave real
      * settlements unprocessed. The signature has already proved the payload is
      * ours.
      */
-    private function amountMismatch(Payment $payment, PaymentCallbackResult $result): ?string
+    private function amountMismatch(Payment $payment, PaymentStatusResult $result): ?string
     {
         if ($result->amount === null || $result->amount === $payment->amount) {
             return null;
         }
 
-        return "Nominal callback ({$result->amount}) tidak sama dengan nominal pembayaran ({$payment->amount}).";
+        return "Nominal dari penyedia ({$result->amount}) tidak sama dengan nominal pembayaran ({$payment->amount}).";
     }
 
     /**
-     * Take the payment where the callback says it now is.
+     * Take the payment where the provider says it now is.
      *
      * @param  array<string, mixed>  $payload
      */
-    private function apply(Payment $payment, PaymentCallbackResult $result, array $payload): PaymentCallbackResult
+    private function apply(Payment $payment, PaymentStatusResult $result, array $payload): PaymentStatusResult
     {
         $status = $result->status;
 
@@ -184,12 +126,12 @@ final class HandlePaymentCallback
         }
 
         if ($payment->status === $status) {
-            Log::info('Ignored a duplicate payment callback.', [
+            Log::info('Ignored a duplicate payment status answer.', [
                 'reference' => $payment->reference,
                 'status' => $status->value,
             ]);
 
-            return PaymentCallbackResult::ignored(
+            return PaymentStatusResult::ignored(
                 $payment->reference,
                 'Pembayaran sudah berada pada status tersebut.',
                 $payload,
@@ -201,17 +143,17 @@ final class HandlePaymentCallback
             // a payment we already recorded, or a `deny` after a `settlement`.
             // Loud, because it means the books and the gateway disagree, and
             // accepted, because arguing with a retry loop achieves nothing.
-            Log::warning('Received a payment callback for an attempt that had already finished.', [
+            Log::warning('Received a payment status answer for an attempt that had already finished.', [
                 'reference' => $payment->reference,
                 'current' => $payment->status->value,
-                'callback' => $status->value,
+                'answer' => $status->value,
             ]);
 
             if ($status === PaymentTransactionStatus::Refunded) {
                 $this->recordGatewayRefund($payment);
             }
 
-            return PaymentCallbackResult::ignored(
+            return PaymentStatusResult::ignored(
                 $payment->reference,
                 "Pembayaran sudah berstatus \"{$payment->status->label()}\".",
                 $payload,
@@ -233,17 +175,17 @@ final class HandlePaymentCallback
                 PaymentTransactionStatus::Pending => null,
             };
         } catch (PaymentFailedException $refused) {
-            // The order moved on while the callback was in flight — expired
+            // The order moved on before the answer was applied — expired
             // and swept, most likely. The money is real, so this is a refund
             // conversation rather than a status change, and the loudest place
             // to say so is the log plus the payload now on the row.
-            Log::error('Could not apply a payment callback.', [
+            Log::error('Could not apply a payment status answer.', [
                 'reference' => $payment->reference,
-                'callback' => $status->value,
+                'answer' => $status->value,
                 'reason' => $refused->getMessage(),
             ]);
 
-            return PaymentCallbackResult::rejected($refused->getMessage(), $payload);
+            return PaymentStatusResult::rejected($refused->getMessage(), $payload);
         }
 
         return $result;

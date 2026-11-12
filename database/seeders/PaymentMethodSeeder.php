@@ -18,19 +18,28 @@ use Illuminate\Database\Seeder;
  * Safe to re-run. Each row is matched on its `code` and its *definition* is
  * refreshed, but three columns are deliberately left alone once the row exists:
  * `is_active`, `sort_order` and `config`. Those are the shop's own decisions —
- * which methods it offers, in what order, and into which bank account — and
- * re-seeding must not switch a disabled method back on or overwrite a real
- * account number with the placeholder below.
+ * which methods it offers, in what order, and where each one is fenced — and
+ * re-seeding must not switch a disabled method back on.
  *
- * The bank and e-wallet accounts here are **placeholders** and say so in the
- * instructions, because a made-up account number that reads as real is one a
- * customer will eventually transfer money to.
+ * **One row per Midtrans channel** (ADR-053). The charge goes through the Core
+ * API, which is asked for one specific channel rather than shown a menu, so
+ * the choice of bank or wallet is made at our checkout: `type` plus
+ * `provider_code` is what `MidtransGateway` turns into a `payment_type`.
  *
- * The Midtrans rows are seeded **inactive**: their driver needs a server key
- * the project does not have yet (`P2-E1-T5`), and an active method whose
- * gateway refuses every charge is a checkout that fails at the last step.
- * Switching them on is a matter of filling in `MIDTRANS_SERVER_KEY` and
- * flipping `is_active`.
+ * **Online payment goes through Midtrans, and only Midtrans** (ADR-051).
+ * There are no manual bank transfer rows here: the shop asked for one payment
+ * path rather than two, and a transfer the shop has to match against its own
+ * bank statement is the expensive one to run. What stays alongside the gateway
+ * is the money that is handed over in person — COD, and cash at a POS counter.
+ *
+ * **The Midtrans rows are seeded active only when there is a key for them.**
+ * Both halves of that matter. An active method whose gateway refuses every
+ * charge is a checkout that fails at the last step; but now that the manual
+ * transfer rows are gone, seeding them inactive unconditionally would leave a
+ * fresh install with **no way at all** to pay for a pickup order, since COD is
+ * fenced to deliveries. So the switch follows `MIDTRANS_SERVER_KEY`, and an
+ * install without one fails loudly at the pay button rather than quietly at
+ * the checkout screen. A row that already exists keeps whatever the shop set.
  */
 class PaymentMethodSeeder extends Seeder
 {
@@ -63,56 +72,24 @@ class PaymentMethodSeeder extends Seeder
     }
 
     /**
+     * Whether this install has a Midtrans server key to charge against.
+     *
+     * Read from config rather than from `env()` directly so that a cached
+     * config and a test that overrides the value both behave the same way.
+     */
+    private function midtransIsConfigured(): bool
+    {
+        $key = config('services.midtrans.server_key');
+
+        return is_string($key) && $key !== '';
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function methods(): array
     {
         return [
-            [
-                'code' => 'bank-transfer-bca',
-                'name' => 'Transfer Bank BCA',
-                'type' => PaymentMethodType::BankTransfer,
-                'driver' => PaymentDriver::Manual,
-                'provider_code' => 'bca',
-                'instructions' => "Transfer **tepat sesuai nominal** ke rekening di atas, lalu unggah bukti transfernya di halaman pesanan ini.\n\n"
-                    ."Nominal yang berbeda — termasuk selisih seribu rupiah — membuat staf tidak bisa mencocokkan pembayaran Anda.\n\n"
-                    .'Nomor rekening di atas masih contoh; ganti di pengaturan pembayaran sebelum toko dibuka.',
-                'fee_flat' => 0,
-                'fee_percent' => 0,
-                'min_amount' => null,
-                'max_amount' => null,
-                'is_active' => true,
-                'sort_order' => 10,
-                'config' => [
-                    'bank' => [
-                        'name' => 'BCA',
-                        'account_number' => '0000000000',
-                        'account_holder' => 'PT Etoko Nusantara (contoh)',
-                    ],
-                ],
-            ],
-            [
-                'code' => 'bank-transfer-mandiri',
-                'name' => 'Transfer Bank Mandiri',
-                'type' => PaymentMethodType::BankTransfer,
-                'driver' => PaymentDriver::Manual,
-                'provider_code' => 'mandiri',
-                'instructions' => "Transfer **tepat sesuai nominal** ke rekening di atas, lalu unggah bukti transfernya di halaman pesanan ini.\n\n"
-                    .'Nomor rekening di atas masih contoh; ganti di pengaturan pembayaran sebelum toko dibuka.',
-                'fee_flat' => 0,
-                'fee_percent' => 0,
-                'min_amount' => null,
-                'max_amount' => null,
-                'is_active' => true,
-                'sort_order' => 20,
-                'config' => [
-                    'bank' => [
-                        'name' => 'Mandiri',
-                        'account_number' => '0000000000',
-                        'account_holder' => 'PT Etoko Nusantara (contoh)',
-                    ],
-                ],
-            ],
             [
                 'code' => 'cod',
                 'name' => 'Bayar di Tempat (COD)',
@@ -148,51 +125,70 @@ class PaymentMethodSeeder extends Seeder
                 'sort_order' => 90,
                 'config' => null,
             ],
-            [
-                'code' => 'midtrans-va',
-                'name' => 'Virtual Account (Midtrans)',
-                'type' => PaymentMethodType::VirtualAccount,
-                'driver' => PaymentDriver::Midtrans,
-                'provider_code' => 'bca',
-                'instructions' => 'Bayar lewat Virtual Account yang muncul setelah Anda menekan tombol bayar.',
-                'fee_flat' => 0,
-                'fee_percent' => 0,
-                'min_amount' => null,
-                'max_amount' => null,
-                'is_active' => false,
-                'sort_order' => 40,
-                'config' => ['midtrans' => ['enabled_payments' => ['bca_va', 'bni_va', 'bri_va', 'permata_va']]],
-            ],
+            // `midtrans-va` is the BCA row and keeps the code it was first
+            // seeded under, so an install that already has it is refreshed
+            // rather than given a second BCA method beside the old one.
+            $this->virtualAccount('midtrans-va', 'bca', 'BCA', 40),
+            $this->virtualAccount('midtrans-va-bni', 'bni', 'BNI', 41),
+            $this->virtualAccount('midtrans-va-bri', 'bri', 'BRI', 42),
+            $this->virtualAccount('midtrans-va-permata', 'permata', 'Permata', 43),
             [
                 'code' => 'midtrans-qris',
-                'name' => 'QRIS (Midtrans)',
+                'name' => 'QRIS',
                 'type' => PaymentMethodType::Qris,
                 'driver' => PaymentDriver::Midtrans,
                 'provider_code' => 'qris',
-                'instructions' => 'Pindai QRIS dengan aplikasi bank atau e-wallet apa pun.',
+                'instructions' => 'Pindai kode QR di bawah dengan aplikasi bank atau e-wallet apa pun. '
+                    .'Status pesanan diperbarui otomatis setelah pembayaran berhasil.',
                 'fee_flat' => 0,
                 'fee_percent' => 0,
                 'min_amount' => null,
                 'max_amount' => 10_000_000,
-                'is_active' => false,
+                'is_active' => $this->midtransIsConfigured(),
                 'sort_order' => 50,
-                'config' => ['midtrans' => ['enabled_payments' => ['other_qris']]],
+                'config' => null,
             ],
             [
                 'code' => 'midtrans-ewallet',
-                'name' => 'E-Wallet (Midtrans)',
+                'name' => 'GoPay',
                 'type' => PaymentMethodType::EWallet,
                 'driver' => PaymentDriver::Midtrans,
                 'provider_code' => 'gopay',
-                'instructions' => 'Bayar dengan GoPay, ShopeePay, atau e-wallet lain yang tersedia.',
+                'instructions' => 'Buka aplikasi Gojek/GoPay lewat tombol di bawah, atau pindai kode QR-nya dari perangkat lain. '
+                    .'Status pesanan diperbarui otomatis setelah pembayaran berhasil.',
                 'fee_flat' => 0,
                 'fee_percent' => 0,
                 'min_amount' => null,
                 'max_amount' => null,
-                'is_active' => false,
+                'is_active' => $this->midtransIsConfigured(),
                 'sort_order' => 60,
-                'config' => ['midtrans' => ['enabled_payments' => ['gopay', 'shopeepay']]],
+                'config' => null,
             ],
+        ];
+    }
+
+    /**
+     * A virtual account at one bank, charged through Midtrans.
+     *
+     * @return array<string, mixed>
+     */
+    private function virtualAccount(string $code, string $bank, string $bankName, int $sortOrder): array
+    {
+        return [
+            'code' => $code,
+            'name' => "Virtual Account {$bankName}",
+            'type' => PaymentMethodType::VirtualAccount,
+            'driver' => PaymentDriver::Midtrans,
+            'provider_code' => $bank,
+            'instructions' => "Transfer ke nomor Virtual Account {$bankName} di bawah lewat m-banking, internet banking, atau ATM. "
+                .'Status pesanan diperbarui otomatis setelah pembayaran berhasil.',
+            'fee_flat' => 0,
+            'fee_percent' => 0,
+            'min_amount' => null,
+            'max_amount' => null,
+            'is_active' => $this->midtransIsConfigured(),
+            'sort_order' => $sortOrder,
+            'config' => null,
         ];
     }
 }

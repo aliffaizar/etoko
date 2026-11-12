@@ -43,11 +43,13 @@ it('leaves the order deadline alone, since it has none of its own', function () 
     expect($this->gateway->charge($payment)->deadlineAgainst($deadline))->toBe($deadline);
 });
 
-it('refuses every callback, because nobody calls a shop about a transfer', function () {
-    $result = $this->gateway->handleCallback(['order_id' => 'ORD-1', 'transaction_status' => 'settlement']);
+it('has no provider to ask, so asking changes nothing', function () {
+    $payment = Payment::factory()->forOrder($this->order)->create();
 
-    expect($result->accepted)->toBeFalse()
-        ->and($result->reason)->toContain('tidak menerima callback');
+    $result = $this->gateway->inquire($payment);
+
+    expect($result->accepted)->toBeTrue()
+        ->and($result->changesState())->toBeFalse();
 });
 
 it('says a refund has to be made by a person', function () {

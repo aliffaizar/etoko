@@ -202,28 +202,6 @@ class PaymentMethod extends Model
     }
 
     /**
-     * The Snap payment channels this method opens (`P2-E1-T5`).
-     *
-     * @return array<int, string>
-     */
-    public function midtransEnabledPayments(): array
-    {
-        $midtrans = $this->config['midtrans'] ?? null;
-
-        if (! is_array($midtrans) || ! is_array($midtrans['enabled_payments'] ?? null)) {
-            return [];
-        }
-
-        return array_values(array_filter(
-            array_map(
-                static fn (mixed $channel): string => is_string($channel) ? $channel : '',
-                $midtrans['enabled_payments'],
-            ),
-            static fn (string $channel): bool => $channel !== '',
-        ));
-    }
-
-    /**
      * The public URL of the method's logo, when it has one.
      */
     public function logoUrl(): ?string

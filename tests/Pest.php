@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\Payment;
+use App\Services\Payment\Midtrans\MidtransClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Fakes\FakeMidtransClient;
 use Tests\TestCase;
 
 /*
@@ -16,6 +19,11 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    // The Midtrans SDK talks cURL directly, so `Http::fake()` does not stop
+    // it. Every test therefore starts with the fake client bound, and one
+    // that sets a server key and forgets to stub fails instead of reaching
+    // the sandbox.
+    ->beforeEach(fn () => fakeMidtrans())
     ->in('Feature');
 
 /*
@@ -47,4 +55,35 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Put a fake in place of the Midtrans SDK client for this test.
+ *
+ * Nothing in the suite reaches Midtrans: a call the test did not stub throws.
+ */
+function fakeMidtrans(): FakeMidtransClient
+{
+    $fake = new FakeMidtransClient;
+
+    app()->instance(MidtransClient::class, $fake);
+
+    return $fake;
+}
+
+/**
+ * What Midtrans' status API answers for a payment (`GET /v2/{order_id}/status`).
+ *
+ * @return array<string, mixed>
+ */
+function midtransStatusAnswer(Payment $payment, string $transactionStatus = 'settlement'): array
+{
+    return [
+        'order_id' => $payment->reference,
+        'status_code' => $transactionStatus === 'pending' ? '201' : '200',
+        'gross_amount' => number_format($payment->amount, 2, '.', ''),
+        'transaction_status' => $transactionStatus,
+        'transaction_id' => 'mt-status-1',
+        'payment_type' => 'bank_transfer',
+    ];
 }

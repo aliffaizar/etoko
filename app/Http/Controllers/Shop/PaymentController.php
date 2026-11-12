@@ -121,10 +121,6 @@ class PaymentController extends Controller
             return "Pesanan dikonfirmasi. Siapkan pembayaran tunai {$this->rupiah($payment->amount)} saat kurir tiba.";
         }
 
-        if ($payment->payment_url !== null) {
-            return 'Lanjutkan pembayaran di halaman penyedia pembayaran yang terbuka berikut.';
-        }
-
         return "Metode pembayaran {$payment->method_name} dipilih. Ikuti instruksi pembayaran di bawah.";
     }
 

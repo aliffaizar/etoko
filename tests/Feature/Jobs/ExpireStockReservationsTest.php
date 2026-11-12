@@ -7,9 +7,11 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\PaymentTransactionStatus;
 use App\Enums\ReservationStatus;
+use App\Exceptions\MidtransApiException;
 use App\Jobs\ExpireStockReservations;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
@@ -25,6 +27,10 @@ use Illuminate\Support\Carbon;
  * `reserved_quantity` would climb and never come down, and a branch with stock
  * on the shelf would gradually stop being able to sell it.
  */
+
+// The window's length is `config/shop.php`'s to decide, and nothing here
+// depends on what it is. Pinning it keeps the arithmetic below readable.
+beforeEach(fn () => config()->set('shop.reservation_minutes', 15));
 
 function sweepReservations(?Carbon $asOf = null): void
 {
@@ -305,5 +311,96 @@ describe('the payment attempts it closes with them (P2-E1-T3, ADR-041)', functio
 
         expect($order->fresh()->status)->toBe(OrderStatus::PendingPayment)
             ->and($payment->fresh()->isOpen())->toBeTrue();
+    });
+});
+
+describe('asking the provider before giving up on an order (ADR-052)', function () {
+    beforeEach(function () {
+        config()->set('services.midtrans.server_key', 'SB-Mid-server-FAKEKEY');
+        $this->midtrans = fakeMidtrans();
+    });
+
+    /**
+     * An unpaid order holding four units, with an open Midtrans attempt that
+     * shares the hold's fifteen-minute deadline.
+     *
+     * @return array{0: Order, 1: Payment}
+     */
+    function orderAwaitingMidtrans(): array
+    {
+        [$order] = orderWithHold();
+
+        $payment = Payment::factory()
+            ->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans()->create())
+            ->expiringAt(now()->addMinutes(15))
+            ->create();
+
+        return [$order, $payment];
+    }
+
+    it('settles an order that was paid at Midtrans instead of expiring it', function () {
+        $this->freezeTime();
+        [$order, $payment] = orderAwaitingMidtrans();
+        $this->midtrans->statusAnswers(midtransStatusAnswer($payment));
+
+        sweepReservations(Carbon::now()->addMinutes(16));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Paid)
+            ->and($order->fresh()->payment_status)->toBe(PaymentStatus::Paid)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Success)
+            ->and(StockReservation::acrossBranches()->sole()->status)->toBe(ReservationStatus::Committed);
+    });
+
+    it('expires the order when Midtrans says the payment is still pending', function () {
+        $this->freezeTime();
+        [$order, $payment] = orderAwaitingMidtrans();
+        $this->midtrans->statusAnswers(midtransStatusAnswer($payment, 'pending'));
+
+        sweepReservations(Carbon::now()->addMinutes(16));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Expired)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Expired)
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
+    });
+
+    it('keeps the order and its stock while Midtrans cannot be reached', function () {
+        $this->freezeTime();
+        [$order, $payment] = orderAwaitingMidtrans();
+        $this->midtrans->statusAnswers(MidtransApiException::unreachable());
+
+        sweepReservations(Carbon::now()->addMinutes(16));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::PendingPayment)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Pending)
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(4);
+    });
+
+    it('stops waiting for an unreachable Midtrans once the grace period is over', function () {
+        $this->freezeTime();
+        [$order, $payment] = orderAwaitingMidtrans();
+        $this->midtrans->statusAnswers(MidtransApiException::unreachable());
+
+        sweepReservations(Carbon::now()->addMinutes(15 + ExpireStockReservations::GATEWAY_GRACE_MINUTES));
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Expired)
+            ->and($payment->fresh()->status)->toBe(PaymentTransactionStatus::Expired)
+            ->and(Stock::acrossBranches()->sole()->reserved_quantity)->toBe(0);
+    });
+
+    it('settles an overdue paid attempt whose order hold has not run out', function () {
+        $this->freezeTime();
+        [$order] = orderWithHold();
+        $payment = Payment::factory()
+            ->forOrder($order)
+            ->forMethod(PaymentMethod::factory()->midtrans()->create())
+            ->overrun()
+            ->create();
+        $this->midtrans->statusAnswers(midtransStatusAnswer($payment));
+
+        sweepReservations();
+
+        expect($payment->fresh()->status)->toBe(PaymentTransactionStatus::Success)
+            ->and($order->fresh()->status)->toBe(OrderStatus::Paid);
     });
 });

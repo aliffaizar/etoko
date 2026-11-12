@@ -81,7 +81,7 @@ final class ReserveStock
      */
     public static function defaultExpiry(): Carbon
     {
-        return Carbon::now()->addMinutes((int) config('shop.reservation_minutes', 15));
+        return Carbon::now()->addMinutes((int) config('shop.reservation_minutes', 1440));
     }
 
     /**

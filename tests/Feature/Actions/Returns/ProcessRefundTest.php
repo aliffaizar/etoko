@@ -31,7 +31,6 @@ use App\Models\ReturnItem;
 use App\Models\Stock;
 use App\Models\User;
 use App\Models\Warehouse;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
 /*
@@ -160,6 +159,21 @@ function gatewaySettledOrder(): array
     app(ReceiveReturn::class)->handle($return->fresh(), [], test()->central);
 
     return [$order->fresh(), $item->fresh(), $return->fresh(), $payment->fresh()];
+}
+
+/**
+ * What Midtrans answers the charge behind `gatewaySettledOrder()`.
+ *
+ * @return array<string, mixed>
+ */
+function refundableCharge(): array
+{
+    return [
+        'status_code' => '201',
+        'transaction_id' => 'mt-txn-refundable',
+        'transaction_status' => 'pending',
+        'va_numbers' => [['bank' => 'bca', 'va_number' => '81234567890']],
+    ];
 }
 
 /**
@@ -572,18 +586,9 @@ describe('a refund through the payment gateway', function () {
     });
 
     it('settles the refund when the provider says the money has gone', function () {
-        // Both calls stubbed in one go, by host: the charge goes to Snap and
-        // the reversal to the core API, and `Http::fake()` merges rather than
-        // replaces — a second blanket `*` stub would never be reached.
-        Http::fake([
-            'app.sandbox.midtrans.com/*' => Http::response([
-                'token' => 't',
-                'redirect_url' => 'https://pay.test/t',
-            ]),
-            'api.sandbox.midtrans.com/*' => Http::response([
-                'status_code' => '200',
-                'refund_key' => 'RFD-OK',
-            ]),
+        fakeMidtrans()->chargeAnswers(refundableCharge())->refundAnswers([
+            'status_code' => '200',
+            'refund_key' => 'RFD-OK',
         ]);
 
         [$order, , $return, $payment] = gatewaySettledOrder();
@@ -602,15 +607,9 @@ describe('a refund through the payment gateway', function () {
     });
 
     it('leaves the refund pending when the provider has only accepted it', function () {
-        Http::fake([
-            'app.sandbox.midtrans.com/*' => Http::response([
-                'token' => 't',
-                'redirect_url' => 'https://pay.test/t',
-            ]),
-            'api.sandbox.midtrans.com/*' => Http::response([
-                'status_code' => '202',
-                'refund_key' => 'RFD-LATER',
-            ]),
+        fakeMidtrans()->chargeAnswers(refundableCharge())->refundAnswers([
+            'status_code' => '202',
+            'refund_key' => 'RFD-LATER',
         ]);
 
         [$order, , $return, $payment] = gatewaySettledOrder();
@@ -631,15 +630,9 @@ describe('a refund through the payment gateway', function () {
     });
 
     it('records the provider refusing, without touching the order', function () {
-        Http::fake([
-            'app.sandbox.midtrans.com/*' => Http::response([
-                'token' => 't',
-                'redirect_url' => 'https://pay.test/t',
-            ]),
-            'api.sandbox.midtrans.com/*' => Http::response([
-                'status_code' => '412',
-                'status_message' => 'Transaksi tidak dapat direfund.',
-            ]),
+        fakeMidtrans()->chargeAnswers(refundableCharge())->refundAnswers([
+            'status_code' => '412',
+            'status_message' => 'Transaksi tidak dapat direfund.',
         ]);
 
         [$order, , $return, $payment] = gatewaySettledOrder();

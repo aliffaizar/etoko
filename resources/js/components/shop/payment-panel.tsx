@@ -6,6 +6,7 @@ import {
     Copy,
     ExternalLink,
     FileText,
+    RefreshCw,
     Upload,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -242,6 +243,23 @@ function PendingPayment({
                 </dl>
             )}
 
+            {payment.qr_image_url && (
+                <figure className="flex flex-col items-center gap-2 rounded-lg border bg-white p-4">
+                    {/* Rendered by the gateway, so a plain image: the QR is
+                        only valid for this attempt and is never cached here. */}
+                    <img
+                        src={payment.qr_image_url}
+                        alt={`Kode QR pembayaran ${payment.method_name}`}
+                        width={240}
+                        height={240}
+                        className="size-60 max-w-full"
+                    />
+                    <figcaption className="text-center text-xs text-neutral-600">
+                        Pindai dengan aplikasi pembayaran Anda
+                    </figcaption>
+                </figure>
+            )}
+
             {payment.instructions && (
                 <div className="text-sm whitespace-pre-line text-muted-foreground">
                     {payment.instructions}
@@ -250,18 +268,29 @@ function PendingPayment({
 
             {payment.payment_url && (
                 <Button asChild>
-                    {/* An external payment page, so a plain anchor rather than
-                        an Inertia link — and `noopener` because the page is
-                        somebody else's. */}
+                    {/* A link into the wallet app, so a plain anchor rather
+                        than an Inertia link — and `noopener` because the
+                        destination is somebody else's. */}
                     <a
                         href={payment.payment_url}
                         target="_blank"
                         rel="noopener noreferrer"
                     >
                         <ExternalLink aria-hidden />
-                        Buka halaman pembayaran
+                        Buka aplikasi pembayaran
                     </a>
                 </Button>
+            )}
+
+            {awaitsGateway(payment) && (
+                <p
+                    className="flex items-center gap-2 text-xs text-muted-foreground"
+                    role="status"
+                >
+                    <RefreshCw aria-hidden className="size-3.5" />
+                    Halaman ini memeriksa pembayaran Anda secara otomatis —
+                    tidak perlu dimuat ulang.
+                </p>
             )}
 
             {waitingOnShop ? (
@@ -530,6 +559,26 @@ function secondsUntil(deadline: string | null): number | null {
     const left = Math.floor((Date.parse(deadline) - Date.now()) / 1000);
 
     return Number.isNaN(left) ? null : Math.max(0, left);
+}
+
+/**
+ * Whether an open attempt is one the payment gateway will settle, as opposed
+ * to one waiting on a receipt or on cash.
+ *
+ * Told from what the gateway issued: only a gateway attempt has a virtual
+ * account number, a QR code or a wallet link. The order page polls for as
+ * long as this is true, because there is no other way for it to learn that
+ * the money arrived (ADR-053).
+ */
+export function awaitsGateway(payment: CustomerPayment | null): boolean {
+    return (
+        payment !== null &&
+        payment.status === 'pending' &&
+        !payment.has_overrun &&
+        (payment.va_number !== null ||
+            payment.qr_image_url !== null ||
+            payment.payment_url !== null)
+    );
 }
 
 function formatCountdown(seconds: number): string {

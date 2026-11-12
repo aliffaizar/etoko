@@ -115,14 +115,22 @@ final class ExpirePayment
      * Read across branches because the queue worker running it has no branch
      * context, and bounded because a backlog is not an emergency.
      *
+     * `$except` names attempts to leave open this time: the ones whose
+     * provider could not be asked whether they were paid (ADR-052). The caller
+     * decides that, because asking is `ReconcilePayment`'s job and it already
+     * depends on this class.
+     *
      * Returns how many were closed.
+     *
+     * @param  array<int, int>  $except
      */
-    public function sweep(?CarbonInterface $asOf = null): int
+    public function sweep(?CarbonInterface $asOf = null, array $except = []): int
     {
         $moment = $asOf ?? Carbon::now();
 
         $payments = Payment::withoutGlobalScope(BranchScope::class)
             ->overrun($moment)
+            ->whereKeyNot($except)
             ->orderBy('expires_at')
             ->orderBy('id')
             ->limit(self::BATCH_SIZE)

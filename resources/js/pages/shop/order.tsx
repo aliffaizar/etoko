@@ -1,4 +1,4 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, usePoll } from '@inertiajs/react';
 import {
     ArrowLeft,
     CheckCircle2,
@@ -8,9 +8,9 @@ import {
     Store,
     Truck,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
-import { PaymentPanel } from '@/components/shop/payment-panel';
+import { awaitsGateway, PaymentPanel } from '@/components/shop/payment-panel';
 import { ReturnPanel } from '@/components/shop/return-panel';
 import { ShipmentPanel } from '@/components/shop/shipment-panel';
 import { StatusBadge } from '@/components/panel/status-badge';
@@ -62,6 +62,9 @@ type OrderProps = {
     just_placed: boolean;
 };
 
+/** How often the page asks whether an open gateway payment has arrived. */
+const PAYMENT_POLL_INTERVAL_MS = 10_000;
+
 export default function OrderPage({
     order,
     cancel_blocked_reason: cancelBlockedReason,
@@ -76,6 +79,38 @@ export default function OrderPage({
     refunds,
     just_placed: justPlaced,
 }: OrderProps) {
+    // There is no payment webhook (ADR-053): the server learns that money
+    // arrived by asking the gateway, and it asks whenever this page is
+    // loaded. So while a gateway attempt is open the page reloads its own
+    // payment props, which is what turns "menunggu pembayaran" into "lunas"
+    // in front of a customer who has just paid on their phone. It stops the
+    // moment there is nothing left to wait for.
+    const waitingOnGateway = awaitsGateway(payment);
+    const { start: startPolling, stop: stopPolling } = usePoll(
+        PAYMENT_POLL_INTERVAL_MS,
+        {
+            only: [
+                'order',
+                'payment',
+                'payment_history',
+                'payment_methods',
+                'payment_blocked_reason',
+                'cancel_blocked_reason',
+            ],
+        },
+        { autoStart: false },
+    );
+
+    useEffect(() => {
+        if (!waitingOnGateway) {
+            return;
+        }
+
+        startPolling();
+
+        return stopPolling;
+    }, [waitingOnGateway, startPolling, stopPolling]);
+
     const [cancelling, setCancelling] = useState(false);
     const cancelForm = useForm<{ reason: string }>({ reason: '' });
 

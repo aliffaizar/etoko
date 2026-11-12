@@ -57,16 +57,8 @@ return [
         'client_key' => env('MIDTRANS_CLIENT_KEY'),
         'merchant_id' => env('MIDTRANS_MERCHANT_ID'),
         'production' => (bool) env('MIDTRANS_PRODUCTION', false),
-        'snap_base_url' => env(
-            'MIDTRANS_SNAP_BASE_URL',
-            env('MIDTRANS_PRODUCTION', false) ? 'https://app.midtrans.com' : 'https://app.sandbox.midtrans.com',
-        ),
-        'api_base_url' => env(
-            'MIDTRANS_API_BASE_URL',
-            env('MIDTRANS_PRODUCTION', false) ? 'https://api.midtrans.com' : 'https://api.sandbox.midtrans.com',
-        ),
         'timeout' => (int) env('MIDTRANS_TIMEOUT', 15),
-        'tolerate_unsigned_webhook' => (bool) env('MIDTRANS_WEBHOOK_TOLERATE_UNSIGNED', false),
+        'qris_acquirer' => env('MIDTRANS_QRIS_ACQUIRER', 'gopay'),
     ],
 
     /*

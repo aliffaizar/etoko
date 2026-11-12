@@ -36,6 +36,11 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!-- Gateway keys are blanked so no test can reach a real sandbox with a
+             developer's own credentials. A test that needs one sets it itself. -->
+        <env name="MIDTRANS_SERVER_KEY" value=""/>
+        <env name="MIDTRANS_CLIENT_KEY" value=""/>
+        <env name="BITESHIP_API_KEY" value=""/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

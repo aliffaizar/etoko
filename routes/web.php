@@ -9,6 +9,7 @@ use App\Http\Controllers\Shop\CheckoutController;
 use App\Http\Controllers\Shop\HomeController;
 use App\Http\Controllers\Shop\OrderController;
 use App\Http\Controllers\Shop\PaymentController;
+use App\Http\Controllers\Shop\PaymentReturnController;
 use App\Http\Controllers\Shop\ProductController;
 use App\Http\Controllers\Shop\ReturnController;
 use App\Http\Controllers\Shop\WishlistController;
@@ -120,6 +121,21 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
             ->middleware('throttle:10,1')
             ->name('store');
     });
+
+    /*
+     * Coming back from an e-wallet app (P2-E1-T5).
+     *
+     * The `callback_url` `MidtransGateway` gives a GoPay or ShopeePay charge.
+     * The controller reads which order to show and nothing else: the query
+     * string is unsigned, and the payment's real status comes from asking
+     * Midtrans. See `Shop\PaymentReturnController`.
+     *
+     * Not nested under `pesanan/{order}` — the order is identified by the
+     * payment reference in the query string rather than by the path.
+     */
+    Route::middleware(['auth', 'verified'])
+        ->get('pembayaran/kembali', PaymentReturnController::class)
+        ->name('payments.return');
 
     // Customer account — requires authentication
     Route::middleware(['auth', 'verified'])->prefix('akun')->name('account.')->group(function () {

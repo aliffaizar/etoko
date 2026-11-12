@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\ExpireStockReservations;
+use App\Jobs\ReconcileOpenPayments;
 use App\Jobs\SyncShipmentTracking;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -31,6 +32,18 @@ Schedule::job(new ExpireStockReservations)
     ->everyMinute()
     ->withoutOverlapping()
     ->name('expire-stock-reservations');
+
+/*
+ * Every five minutes: the application has no payment webhook, so this is how
+ * a payment made by somebody who is not looking at their order page is
+ * noticed (P2-E1-T6, ADR-053). Five minutes is the longest a paid order waits
+ * before its branch sees it; each run is one Status API call per open gateway
+ * attempt, which is why it is not every minute.
+ */
+Schedule::job(new ReconcileOpenPayments)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->name('reconcile-open-payments');
 
 /*
  * Every ten minutes, not every minute, and the difference is what is at stake

@@ -31,17 +31,6 @@ enum PaymentDriver: string
     }
 
     /**
-     * Whether a gateway sends us callbacks for this driver.
-     *
-     * `Manual` does not: nobody calls the shop's webhook to say a transfer
-     * landed, which is why `P2-E1-T3` exists at all.
-     */
-    public function sendsWebhooks(): bool
-    {
-        return $this !== self::Manual;
-    }
-
-    /**
      * @return array<int, array{value: string, label: string}>
      */
     public static function options(): array

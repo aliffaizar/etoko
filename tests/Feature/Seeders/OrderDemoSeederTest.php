@@ -28,9 +28,17 @@ use Database\Seeders\RolePermissionSeeder;
  * match its status, and stock figures the ledger still explains. A seeder that
  * wrote `orders` directly would pass none of this — which is the drift these
  * tests exist to catch.
+ *
+ * Online payment is Midtrans and only Midtrans (ADR-051), so the demo
+ * payments exist only where a gateway key does: the methods are seeded
+ * inactive without one. The key is therefore configured here, and the
+ * degradation without it has a test of its own at the bottom. Snap itself is
+ * stubbed by the seeder, so none of this leaves the machine.
  */
 
 beforeEach(function () {
+    config()->set('services.midtrans.server_key', 'SB-Mid-server-DEMOKEY');
+
     $this->seed(RolePermissionSeeder::class);
     $this->seed(DemoDataSeeder::class);
     $this->seed(CatalogDemoSeeder::class);
@@ -234,4 +242,17 @@ it('leaves the carts it used empty', function () {
     $this->seed(OrderDemoSeeder::class);
 
     expect(CartItem::query()->count())->toBe(0);
+});
+
+it('still produces orders when there is no gateway key, just no gateway payments', function () {
+    config()->set('services.midtrans.server_key', null);
+
+    $this->seed(PaymentMethodSeeder::class);
+    $this->seed(OrderDemoSeeder::class);
+
+    // The orders and their holds are the seeder's real subject, and none of
+    // them depend on a gateway. Only the attempts do: COD still opens one,
+    // because COD needs no key.
+    expect(Order::acrossBranches()->count())->toBeGreaterThan(0)
+        ->and(Payment::acrossBranches()->whereRelation('paymentMethod', 'driver', 'midtrans')->count())->toBe(0);
 });

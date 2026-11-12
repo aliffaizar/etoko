@@ -202,7 +202,7 @@ final class TransitionOrderStatus
             // (ADR-040). `VerifyPayment` moves this to `Paid` when the cash is
             // recorded. Read from the order's own payment attempt rather than
             // passed in, so every caller of this action — checkout, the panel,
-            // the webhook — gets the same answer.
+            // the status check — gets the same answer.
             $changes['payment_status'] = $order->requiresCashOnDelivery()
                 ? PaymentStatus::Pending
                 : PaymentStatus::Paid;
@@ -285,7 +285,7 @@ final class TransitionOrderStatus
      * The order, re-read and locked for this transaction.
      *
      * Read across branches on purpose: the queue worker that expires an unpaid
-     * order and the payment callback that marks one paid both run with no
+     * order and the payment status check that marks one paid both run with no
      * branch context to narrow by, and the key already identifies the row.
      */
     private function lock(Order $order): Order

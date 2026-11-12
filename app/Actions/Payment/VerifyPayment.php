@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Log;
  * Records that the money arrived (P2-E1-T3, T4, T6).
  *
  * The one place money becomes real, whoever says so: a staff member who has
- * checked the bank statement against an uploaded receipt, a gateway callback,
+ * checked the bank statement against an uploaded receipt, a gateway's status answer,
  * or a branch recording the cash a courier brought back from a COD. All three
  * mean the same thing and must have the same consequences, which is why there
  * is one action rather than one per screen.
@@ -216,7 +216,7 @@ final class VerifyPayment
     /**
      * The attempt, re-read and locked for this transaction.
      *
-     * Read across branches: the webhook worker has no branch context, and the
+     * Read across branches: the queue worker has no branch context, and the
      * key already identifies the row.
      */
     private function lock(Payment $payment): Payment

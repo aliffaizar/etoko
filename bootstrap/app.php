@@ -17,23 +17,6 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
-        /*
-         * Webhooks are registered **outside** the `web` group (P2-E1-T6).
-         *
-         * The caller is a payment provider's server: it has no session, no
-         * CSRF token and no cookies to encrypt, and running the Inertia and
-         * branch-context middleware for it would be work done for a machine
-         * that reads nothing but the status code. What takes the place of
-         * those guards is the driver's signature check — see
-         * `Webhook\PaymentWebhookController`.
-         *
-         * This is the one deviation from docs/06-conventions.md §Route, which
-         * has every area's route file required from `web.php`; requiring this
-         * one there would put it back inside the group it has to stay out of.
-         */
-        then: function (): void {
-            Route::group([], base_path('routes/webhook.php'));
-        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);

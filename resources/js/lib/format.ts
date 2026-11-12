@@ -83,6 +83,24 @@ export function formatDateShort(
     return DATE_SHORT.format(new Date(value));
 }
 
+/**
+ * A length of time given in minutes, in the largest units that fit:
+ * "15 menit", "2 jam", "1 hari", "1 hari 6 jam".
+ */
+export function formatDuration(minutes: number): string {
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    const rest = minutes % 60;
+
+    const parts = [
+        days > 0 ? `${days} hari` : null,
+        hours > 0 ? `${hours} jam` : null,
+        rest > 0 || (days === 0 && hours === 0) ? `${rest} menit` : null,
+    ].filter((part): part is string => part !== null);
+
+    return parts.join(' ');
+}
+
 /** Relative time in Indonesian, e.g. "3 jam lalu". */
 export function formatRelative(
     value: string | Date | null | undefined,

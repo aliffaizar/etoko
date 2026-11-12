@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\PaymentTransactionStatus;
 use App\Enums\ReservationStatus;
+use App\Exceptions\MidtransApiException;
 use App\Exceptions\PaymentFailedException;
 use App\Models\Branch;
 use App\Models\Order;
@@ -18,7 +19,6 @@ use App\Models\Stock;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
 use App\Models\Warehouse;
-use Illuminate\Support\Facades\Http;
 
 /*
  * Asking the customer for the money (P2-E1-T2, T3, T7).
@@ -112,11 +112,11 @@ describe('opening an attempt', function () {
 
     it('marks a gateway order pending, because the gateway is holding it', function () {
         config()->set('services.midtrans.server_key', 'SB-Mid-server-test');
-        Http::fake([
-            '*/snap/v1/transactions' => Http::response([
-                'token' => 'tok-1',
-                'redirect_url' => 'https://app.sandbox.midtrans.com/snap/v4/redirection/tok-1',
-            ]),
+        fakeMidtrans()->chargeAnswers([
+            'status_code' => '201',
+            'transaction_id' => 'mt-txn-1',
+            'transaction_status' => 'pending',
+            'va_numbers' => [['bank' => 'bca', 'va_number' => '81234567890']],
         ]);
 
         $order = payableOrder();
@@ -124,10 +124,11 @@ describe('opening an attempt', function () {
         $payment = $this->initiate->handle($order, PaymentMethod::factory()->midtrans()->create());
 
         expect($order->fresh()->payment_status)->toBe(PaymentStatus::Pending)
-            ->and($payment->payment_url)->toContain('midtrans.com');
+            ->and($payment->va_number)->toBe('81234567890')
+            ->and($payment->external_id)->toBe('mt-txn-1');
     });
 
-    it('refuses a gateway method that has no server key, rather than sending an unsigned request', function () {
+    it('refuses a gateway method that has no server key, rather than calling the gateway without one', function () {
         config()->set('services.midtrans.server_key', null);
 
         $this->initiate->handle(payableOrder(), PaymentMethod::factory()->midtrans()->create());
@@ -135,12 +136,10 @@ describe('opening an attempt', function () {
 
     it('leaves a failed charge recorded as a failed attempt, not deleted', function () {
         config()->set('services.midtrans.server_key', 'SB-Mid-server-test');
-        Http::fake([
-            '*/snap/v1/transactions' => Http::response(
-                ['error_messages' => ['transaction_details.gross_amount is not valid']],
-                400,
-            ),
-        ]);
+        fakeMidtrans()->chargeAnswers(MidtransApiException::refused(400, [
+            'status_code' => '400',
+            'validation_messages' => ['transaction_details.gross_amount is not valid'],
+        ]));
 
         $order = payableOrder();
 

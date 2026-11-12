@@ -18,6 +18,7 @@ use App\Models\ProductVariant;
 use App\Models\Stock;
 use App\Models\User;
 use App\Services\Payment\Data\PaymentContext;
+use App\Services\Payment\Midtrans\MidtransClient;
 use App\Services\Payment\PaymentMethodEligibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
@@ -41,17 +42,28 @@ use Illuminate\Support\Facades\DB;
  *   its `expires_at` is pushed well out so the expiry sweep does not
  *   immediately cancel the demo data;
  * - one COD, confirmed and being processed, with the money still outstanding;
- * - one completed, paid by transfer and verified, for the history and the
- *   customer's lifetime total;
+ * - one completed, paid through the gateway and verified, for the history and
+ *   the customer's lifetime total;
  * - one cancelled, with its hold released and its payment attempt closed.
  *
  * **Payments are seeded through the real actions too** (`P2-E1-T1`), for the
  * same reason as the orders: `/admin/payments` is a queue, and a queue with
- * nothing in it demonstrates nothing. The four scenarios leave one attempt
- * awaiting a transfer, one COD awaiting cash, one settled and one expired —
- * which is every column of the payment screen with something in it. No
- * receipt file is faked: uploading one means writing to the disk, and a demo
- * image that looks like a real transfer slip is worse than an empty field.
+ * nothing in it demonstrates nothing. The four scenarios leave one gateway
+ * attempt awaiting payment, one COD awaiting cash, one settled and one
+ * expired — which is every column of the payment screen with something in it.
+ * No receipt file is faked: uploading one means writing to the disk, and a
+ * demo image that looks like a real payment slip is worse than an empty field.
+ *
+ * **Midtrans is stubbed, not called** (ADR-051, ADR-053). Online payment is
+ * Midtrans, so seeding realistic demo payments means opening gateway attempts
+ * — and a seeder that reaches a payment provider is one that needs the
+ * network, takes a visible pause per order, and leaves real sandbox
+ * transactions behind every time somebody runs `migrate:fresh --seed`. The
+ * stub below stands in for `MidtransClient` inside the seeding process only.
+ * An install with no `MIDTRANS_SERVER_KEY` never gets that far: the methods
+ * are seeded inactive, `InitiatePayment` refuses, and `pay()` warns and moves
+ * on — demo orders without payments, which is a degradation rather than a
+ * failure.
  *
  * Re-running it is safe: a branch that already has orders is skipped rather
  * than given more. Never run it against a production database.
@@ -86,7 +98,7 @@ class OrderDemoSeeder extends Seeder
             'status' => null,
             'fulfillment' => FulfillmentType::Delivery,
             'note' => 'Menunggu pembayaran — stoknya masih ditahan.',
-            'payment' => 'bank-transfer-bca',
+            'payment' => 'midtrans-va',
             'settle' => false,
         ],
         [
@@ -100,14 +112,14 @@ class OrderDemoSeeder extends Seeder
             'status' => OrderStatus::Completed,
             'fulfillment' => FulfillmentType::Pickup,
             'note' => 'Selesai, diambil sendiri di cabang.',
-            'payment' => 'bank-transfer-bca',
+            'payment' => 'midtrans-va',
             'settle' => true,
         ],
         [
             'status' => OrderStatus::Cancelled,
             'fulfillment' => FulfillmentType::Delivery,
             'note' => 'Dibatalkan pelanggan sebelum dibayar.',
-            'payment' => 'bank-transfer-bca',
+            'payment' => 'midtrans-va',
             'settle' => false,
         ],
     ];
@@ -119,6 +131,8 @@ class OrderDemoSeeder extends Seeder
         VerifyPayment $verifyPayment,
         PaymentMethodEligibility $eligibility,
     ): void {
+        $this->stubMidtrans();
+
         $customers = $this->customers();
 
         if ($customers->isEmpty()) {
@@ -144,6 +158,47 @@ class OrderDemoSeeder extends Seeder
         }
 
         self::extendDemoHolds();
+
+        app()->forgetInstance(MidtransClient::class);
+    }
+
+    /**
+     * Answer Midtrans locally, so seeding never leaves the machine.
+     *
+     * Only `charge()` is answered, in the shape the Core API uses for the
+     * channel that was asked for. The numbers are obviously fake, so a demo
+     * payment row looks like the real thing on the payment screen without any
+     * transaction existing at Midtrans — which is also what the status API
+     * will say about it afterwards: nothing recorded, nothing to change.
+     */
+    private function stubMidtrans(): void
+    {
+        app()->instance(MidtransClient::class, new class extends MidtransClient
+        {
+            public function charge(array $params): array
+            {
+                $answer = [
+                    'status_code' => '201',
+                    'transaction_id' => 'demo-seeder-'.$params['transaction_details']['order_id'],
+                    'order_id' => $params['transaction_details']['order_id'],
+                    'transaction_status' => 'pending',
+                    'payment_type' => $params['payment_type'],
+                ];
+
+                return match ($params['payment_type']) {
+                    'bank_transfer' => [...$answer, 'va_numbers' => [[
+                        'bank' => $params['bank_transfer']['bank'],
+                        'va_number' => '0000000000000000',
+                    ]]],
+                    'qris' => [...$answer, 'qr_string' => 'DEMO-SEEDER-QRIS'],
+                    default => [...$answer, 'actions' => [[
+                        'name' => 'deeplink-redirect',
+                        'method' => 'GET',
+                        'url' => 'https://simulator.sandbox.midtrans.com/demo-seeder',
+                    ]]],
+                };
+            }
+        });
     }
 
     /**

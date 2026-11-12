@@ -5,9 +5,11 @@ namespace App\Jobs;
 use App\Actions\Order\ReleaseReservation;
 use App\Actions\Order\TransitionOrderStatus;
 use App\Actions\Payment\ExpirePayment;
+use App\Actions\Payment\ReconcilePayment;
 use App\Enums\OrderStatus;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Models\Order;
+use App\Models\Payment;
 use App\Models\StockReservation;
 use App\Scopes\BranchScope;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -50,6 +52,15 @@ use Illuminate\Support\Facades\Log;
  * leave an order whose goods are back on sale still showing a payable virtual
  * account, or an order whose payment has lapsed still holding its units.
  *
+ * **Nothing is expired without asking** (ADR-052, ADR-053). Before an order
+ * is expired or an attempt closed, its provider is asked whether the money
+ * arrived: there is no webhook, so what the database says is only as fresh as
+ * the last time somebody asked, and expiring a paid order gives its goods to
+ * somebody else.
+ * A paid attempt settles the order instead. An attempt whose provider cannot
+ * be reached is left for the next run, for at most `GATEWAY_GRACE_MINUTES`
+ * past its deadline — an outage must not hold stock for ever either.
+ *
  * `WithoutOverlapping` keeps two runs apart. The actions are each safe to run
  * twice — they re-read every row under its lock and skip holds already settled
  * — but two sweeps racing would spend their time losing to each other's locks.
@@ -67,6 +78,20 @@ class ExpireStockReservations implements ShouldQueue
      */
     public const BATCH_SIZE = 200;
 
+    /**
+     * How long past its deadline an attempt is kept open while its provider
+     * cannot be asked about it.
+     */
+    public const GATEWAY_GRACE_MINUTES = 30;
+
+    /**
+     * Whether each attempt's provider could be asked during this run, by
+     * payment id, so no attempt is asked about twice in one sweep.
+     *
+     * @var array<int, bool>
+     */
+    private array $providerAnswered = [];
+
     public function __construct(public readonly ?Carbon $asOf = null) {}
 
     /**
@@ -81,16 +106,18 @@ class ExpireStockReservations implements ShouldQueue
         TransitionOrderStatus $transitionOrderStatus,
         ReleaseReservation $releaseReservation,
         ExpirePayment $expirePayment,
+        ReconcilePayment $reconcilePayment,
     ): void {
         $moment = $this->asOf ?? Carbon::now();
+        $this->providerAnswered = [];
 
         // Orders first, because expiring one closes its own payment attempt as
         // part of the transition; whatever the sweep below finds afterwards is
         // an attempt whose order is no longer waiting on it.
-        $this->expireOrders($transitionOrderStatus, $moment);
+        $this->expireOrders($transitionOrderStatus, $reconcilePayment, $moment);
         $this->releaseOrphanHolds($releaseReservation, $moment);
         $this->releaseStrandedHolds($releaseReservation, $moment);
-        $expirePayment->sweep($moment);
+        $expirePayment->sweep($moment, except: $this->overdueAttemptsToKeepOpen($reconcilePayment, $moment));
     }
 
     /**
@@ -101,8 +128,11 @@ class ExpireStockReservations implements ShouldQueue
      * rest of the batch, which is why the loop catches rather than letting the
      * job fail and retry the whole sweep.
      */
-    private function expireOrders(TransitionOrderStatus $transitionOrderStatus, Carbon $moment): void
-    {
+    private function expireOrders(
+        TransitionOrderStatus $transitionOrderStatus,
+        ReconcilePayment $reconcilePayment,
+        Carbon $moment,
+    ): void {
         $orderIds = StockReservation::withoutGlobalScope(BranchScope::class)
             ->expired($moment)
             ->whereNotNull('order_id')
@@ -117,6 +147,10 @@ class ExpireStockReservations implements ShouldQueue
             ->get();
 
         foreach ($orders as $order) {
+            if ($this->paidOrUnknown($order, $reconcilePayment, $moment)) {
+                continue;
+            }
+
             try {
                 $transitionOrderStatus->handle(
                     $order,
@@ -133,6 +167,64 @@ class ExpireStockReservations implements ShouldQueue
                 ]);
             }
         }
+    }
+
+    /**
+     * Whether an order due to expire must be left alone after asking its
+     * attempts' providers: it turned out to be paid, or nobody could say.
+     */
+    private function paidOrUnknown(Order $order, ReconcilePayment $reconcilePayment, Carbon $moment): bool
+    {
+        $unknown = false;
+
+        foreach ($order->payments()->open()->with('paymentMethod')->get() as $payment) {
+            $unknown = $this->mustStayOpen($payment, $reconcilePayment, $moment) || $unknown;
+        }
+
+        if ($unknown) {
+            return true;
+        }
+
+        return $order->refresh()->status !== OrderStatus::PendingPayment;
+    }
+
+    /**
+     * The overdue attempts the payment sweep must not close this run.
+     *
+     * Asking is what settles a paid attempt, so by the time this returns the
+     * only overdue attempts still open are the unpaid ones — which the sweep
+     * closes — and the ones named here, whose provider did not answer.
+     *
+     * @return array<int, int>
+     */
+    private function overdueAttemptsToKeepOpen(ReconcilePayment $reconcilePayment, Carbon $moment): array
+    {
+        return Payment::withoutGlobalScope(BranchScope::class)
+            ->overrun($moment)
+            ->with('paymentMethod')
+            ->orderBy('expires_at')
+            ->orderBy('id')
+            ->limit(ExpirePayment::BATCH_SIZE)
+            ->get()
+            ->filter(fn (Payment $payment): bool => $this->mustStayOpen($payment, $reconcilePayment, $moment))
+            ->map(fn (Payment $payment): int => (int) $payment->getKey())
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Ask an attempt's provider about it, once per run, and say whether the
+     * attempt has to be kept open because the provider could not answer.
+     */
+    private function mustStayOpen(Payment $payment, ReconcilePayment $reconcilePayment, Carbon $moment): bool
+    {
+        $answered = $this->providerAnswered[$payment->getKey()] ??= $reconcilePayment->handle($payment);
+
+        if ($answered || $payment->expires_at === null) {
+            return false;
+        }
+
+        return $moment->lessThan($payment->expires_at->copy()->addMinutes(self::GATEWAY_GRACE_MINUTES));
     }
 
     /**

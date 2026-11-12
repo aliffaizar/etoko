@@ -35,8 +35,8 @@ use Illuminate\Validation\ValidationException;
  *    other write to that order would queue behind it.
  * 3. **Record what came back.** A reversal the provider has already carried
  *    out is settled through `SettleRefund`, which is what moves the order. One
- *    it has merely accepted stays `pending` with its id on it, for the
- *    callback or for somebody to check. A refusal is written onto the row as a
+ *    it has merely accepted stays `pending` with its id on it, for
+ *    somebody to check. A refusal is written onto the row as a
  *    failure, because "we asked and it was refused" is a thing support needs
  *    to see.
  *
@@ -249,8 +249,8 @@ final class ProcessRefund
         try {
             $result = $this->gateways->forPayment($payment)->refund($payment, $refund->amount);
         } catch (PaymentFailedException $refused) {
-            // `charge()` throws and `handleCallback()` does not (ADR-004);
-            // `refund()` is allowed either, because a driver with no provider
+            // `charge()` throws by contract (ADR-004), and `refund()` is
+            // allowed to as well, because a driver with no provider
             // to call cannot always answer in a value object. A refusal is
             // recorded on the row like any other, so the attempt stays
             // visible.
@@ -282,8 +282,8 @@ final class ProcessRefund
     /**
      * The provider accepted the reversal but has not finished it.
      *
-     * Left `pending` with the provider's id on it, so the callback — or
-     * somebody checking the provider's dashboard — can finish it. Recording it
+     * Left `pending` with the provider's id on it, so somebody
+     * checking the provider's dashboard can finish it. Recording it
      * as settled here would claim money had moved on the word of a provider
      * that said the opposite.
      */

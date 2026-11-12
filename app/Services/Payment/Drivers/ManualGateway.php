@@ -4,8 +4,8 @@ namespace App\Services\Payment\Drivers;
 
 use App\Exceptions\PaymentFailedException;
 use App\Models\Payment;
-use App\Services\Payment\Data\PaymentCallbackResult;
 use App\Services\Payment\Data\PaymentInstruction;
+use App\Services\Payment\Data\PaymentStatusResult;
 use App\Services\Payment\Data\RefundResult;
 use App\Services\Payment\PaymentGateway;
 
@@ -24,10 +24,7 @@ use App\Services\Payment\PaymentGateway;
  *   derives from the order's stock hold (ADR-041). A driver that invented the
  *   words would put them beyond the reach of whoever has to change the account
  *   number.
- * - **`handleCallback()`** rejects everything. Nobody calls a shop's webhook
- *   to say a transfer landed; a payload claiming to be a manual settlement is
- *   either a mistake or an attempt to mark an order paid without paying, and
- *   both deserve the same flat refusal. Manual money is confirmed by a staff
+ * - **`inquire()`** has nobody to ask. Manual money is confirmed by a staff
  *   member through `payments.verify` (`P2-E1-T4`), which records who said so.
  * - **`refund()`** says a person must move the money. The shop's own bank
  *   account cannot be instructed by this application, so claiming a refund
@@ -41,13 +38,14 @@ final class ManualGateway implements PaymentGateway
     }
 
     /**
-     * @param  array<string, mixed>  $payload
+     * There is nobody to ask: a manual payment is settled by a staff member,
+     * and until one does, nothing has happened.
      */
-    public function handleCallback(array $payload): PaymentCallbackResult
+    public function inquire(Payment $payment): PaymentStatusResult
     {
-        return PaymentCallbackResult::rejected(
-            'Metode pembayaran manual tidak menerima callback; pembayaran manual diverifikasi staf.',
-            $payload,
+        return PaymentStatusResult::ignored(
+            $payment->reference,
+            'Pembayaran manual tidak memiliki penyedia untuk ditanya.',
         );
     }
 

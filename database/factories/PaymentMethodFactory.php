@@ -93,9 +93,14 @@ class PaymentMethodFactory extends Factory
             'name' => 'Midtrans '.$type->label(),
             'type' => $type,
             'driver' => PaymentDriver::Midtrans,
-            'provider_code' => $type === PaymentMethodType::VirtualAccount ? 'bca' : null,
+            'provider_code' => match ($type) {
+                PaymentMethodType::VirtualAccount => 'bca',
+                PaymentMethodType::EWallet => 'gopay',
+                PaymentMethodType::Qris => 'qris',
+                default => null,
+            },
             'instructions' => null,
-            'config' => ['midtrans' => ['enabled_payments' => ['bca_va']]],
+            'config' => null,
         ]);
     }
 

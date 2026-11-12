@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Shop;
 
 use App\Actions\Order\TransitionOrderStatus;
+use App\Actions\Payment\ReconcilePayment;
 use App\Enums\OrderStatus;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Http\Controllers\Controller;
@@ -75,13 +76,24 @@ class OrderController extends Controller
 
     /**
      * One order, with its lines and its timeline.
+     *
+     * Before anything is read, an attempt still open is checked against its
+     * provider (ADR-052, ADR-053). This is the page the customer is looking
+     * at while they pay — it holds the virtual account number or the QR code
+     * — and it polls itself for as long as an attempt is open, so asking here
+     * is what turns "menunggu pembayaran" into "lunas" in front of them.
+     * There is no webhook to do it instead.
      */
-    public function show(Request $request, Order $order): Response
+    public function show(Request $request, Order $order, ReconcilePayment $reconcilePayment): Response
     {
         /** @var User $customer */
         $customer = $request->user();
 
         abort_unless($order->user_id === $customer->getKey(), 404);
+
+        if ($reconcilePayment->forOrder($order)) {
+            $order->refresh();
+        }
 
         $order->load([
             'branch:id,name,city_name,address_line,phone',
