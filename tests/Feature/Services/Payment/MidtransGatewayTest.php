@@ -24,6 +24,9 @@ use App\Services\Payment\Drivers\MidtransGateway;
 
 beforeEach(function () {
     config()->set('services.midtrans.server_key', 'SB-Mid-server-FAKEKEY');
+    // The default follows the environment (sandbox or production), so it is
+    // pinned here rather than inherited from whoever runs the suite.
+    config()->set('services.midtrans.qris_acquirer', 'gopay');
 
     $this->branch = Branch::factory()->default()->create();
     $this->order = Order::factory()->forBranch($this->branch)->create([

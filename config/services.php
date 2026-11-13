@@ -58,7 +58,15 @@ return [
         'merchant_id' => env('MIDTRANS_MERCHANT_ID'),
         'production' => (bool) env('MIDTRANS_PRODUCTION', false),
         'timeout' => (int) env('MIDTRANS_TIMEOUT', 15),
-        'qris_acquirer' => env('MIDTRANS_QRIS_ACQUIRER', 'gopay'),
+        // Which acquirer issues QRIS is a fact about the Midtrans account, and
+        // the two environments differ: GoPay is switched on per merchant in
+        // production, while the sandbox has no such setting and answers
+        // "Merchant pop id is not found" for it — there QRIS is issued
+        // through ShopeePay's acquirer instead (ADR-053, PAY-07).
+        'qris_acquirer' => env(
+            'MIDTRANS_QRIS_ACQUIRER',
+            env('MIDTRANS_PRODUCTION', false) ? 'gopay' : 'airpay shopee',
+        ),
     ],
 
     /*
