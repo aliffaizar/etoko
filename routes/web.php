@@ -7,6 +7,7 @@ use App\Http\Controllers\Shop\CartController;
 use App\Http\Controllers\Shop\CatalogController;
 use App\Http\Controllers\Shop\CheckoutController;
 use App\Http\Controllers\Shop\HomeController;
+use App\Http\Controllers\Shop\InvoiceController;
 use App\Http\Controllers\Shop\OrderController;
 use App\Http\Controllers\Shop\PaymentController;
 use App\Http\Controllers\Shop\PaymentReturnController;
@@ -162,6 +163,12 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
             Route::get('/', [OrderController::class, 'index'])->name('index');
             Route::get('{order}', [OrderController::class, 'show'])->name('show');
             Route::post('{order}/batal', [OrderController::class, 'cancel'])->name('cancel');
+
+            /*
+             * The invoice as a PDF (P2-E6-T2). A plain download rather than a
+             * page; the controller checks `orders.user_id` like the others.
+             */
+            Route::get('{order}/invoice', InvoiceController::class)->name('invoice');
 
             /*
              * Paying for the order (P2-E1-T3).

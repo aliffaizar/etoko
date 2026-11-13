@@ -20,8 +20,10 @@ use App\Models\Stock;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Notifications\OrderStatusNotification;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 /*
  * Turning a cart into an order (P1-E7-T5).
@@ -462,5 +464,38 @@ describe('one cart, one order (HIGH-01)', function () {
 
         expect($order->items()->count())->toBe(1)
             ->and($cart->items()->count())->toBe(0);
+    });
+});
+
+describe('telling the customer (P2-E6-T3)', function () {
+    it('tells the customer their order was received, with what to pay', function () {
+        Notification::fake();
+
+        $order = placeOrder()->handle(cartWith(checkoutVariant()), $this->branch, $this->customer, deliveryData());
+
+        Notification::assertSentTo(
+            $this->customer,
+            OrderStatusNotification::class,
+            function (OrderStatusNotification $notification) use ($order): bool {
+                $mail = $notification->toMail($this->customer);
+
+                return $notification->status === OrderStatus::PendingPayment
+                    && $notification->order->is($order)
+                    && $mail->actionText === 'Bayar sekarang'
+                    && str_contains($mail->introLines[0], $order->order_number);
+            },
+        );
+    });
+
+    it('drops the "please pay" message once the order has already moved on', function () {
+        $order = placeOrder()->handle(cartWith(checkoutVariant()), $this->branch, $this->customer, deliveryData());
+        $placed = new OrderStatusNotification($order, OrderStatus::PendingPayment);
+
+        expect($placed->shouldSend($this->customer, 'mail'))->toBeTrue();
+
+        // A COD order is moved to `paid` seconds after it is placed (ADR-040).
+        $order->update(['status' => OrderStatus::Paid, 'paid_at' => now()]);
+
+        expect($placed->shouldSend($this->customer, 'mail'))->toBeFalse();
     });
 });

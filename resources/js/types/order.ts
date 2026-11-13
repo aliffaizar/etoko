@@ -146,6 +146,13 @@ export type OrderMoments = {
     cancelled_at: string | null;
 };
 
+/** The invoice an order is given once paid for (P2-E6-T2). */
+export type OrderInvoice = {
+    /** Null until the queue has issued it; the download issues it too. */
+    number: string | null;
+    issued_at: string | null;
+};
+
 export type OrderDetail = OrderRow & {
     customer_email: string | null;
     customer_phone: string | null;

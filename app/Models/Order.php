@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -91,6 +92,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Shipment> $shipments
  * @property-read Collection<int, OrderReturn> $returns
  * @property-read Collection<int, Refund> $refunds
+ * @property-read Invoice|null $invoice
  */
 #[Fillable([
     'order_number', 'user_id', 'branch_id', 'channel', 'fulfillment_type',
@@ -230,6 +232,36 @@ class Order extends Model
     public function refunds(): HasMany
     {
         return $this->hasMany(Refund::class)->orderByDesc('id');
+    }
+
+    /**
+     * The invoice the order was given when it was paid for (P2-E6-T1).
+     *
+     * @return HasOne<Invoice, $this>
+     */
+    public function invoice(): HasOne
+    {
+        return $this->hasOne(Invoice::class);
+    }
+
+    /**
+     * Why this order has no invoice to issue, or null when it has one due.
+     *
+     * An invoice is owed from the moment the order is paid for, and stays
+     * owed after that — a cancelled or refunded order was still sold, and the
+     * refund is a document of its own. `paid_at` is the test rather than the
+     * status, because it is stamped once on the way through `paid` and every
+     * later status keeps it. A COD order passes too: it reaches `paid` when
+     * its goods are committed (ADR-040), and its invoice says the money is
+     * still to be collected.
+     */
+    public function invoiceBlockedReason(): ?string
+    {
+        if ($this->paid_at === null) {
+            return 'Invoice terbit setelah pesanan dibayar.';
+        }
+
+        return null;
     }
 
     /**

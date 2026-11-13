@@ -57,7 +57,9 @@ describe('issuing the code', function () {
         $shipped = $this->transition->handle($order, OrderStatus::Shipped, $this->staff);
 
         expect($shipped->pickup_code)->toBeNull();
-        Notification::assertNothingSent();
+        // The customer is told it has been shipped (P2-E6-T3), but not that
+        // anything is waiting to be collected.
+        Notification::assertNotSentTo($this->customer, OrderReadyForPickupNotification::class);
     });
 
     it('notifies nobody for a walk-in order that has no account behind it', function () {

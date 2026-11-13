@@ -181,6 +181,27 @@ final class OrderPresenter
     }
 
     /**
+     * The order's invoice, or null while it has none to give (P2-E6-T2).
+     *
+     * Offered as soon as the order has been paid for, even before the
+     * listener has issued it: the download issues it on the way, so the
+     * screen never waits on the queue. `number` is null in that window.
+     *
+     * @return array{number: string|null, issued_at: string|null}|null
+     */
+    public static function invoice(Order $order): ?array
+    {
+        if ($order->invoiceBlockedReason() !== null) {
+            return null;
+        }
+
+        return [
+            'number' => $order->invoice?->invoice_number,
+            'issued_at' => $order->invoice?->issued_at->toIso8601String(),
+        ];
+    }
+
+    /**
      * The stock an order is still holding, warehouse by warehouse (P1-E7-T8).
      *
      * Shown on the panel's detail screen so a branch can see *why* units are

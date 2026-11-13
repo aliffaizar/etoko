@@ -30,13 +30,22 @@ Route::middleware(['auth', 'verified', 'branch'])
             ->name('dashboard');
 
         /*
-         * The signed-in user's own notification feed (P1-E4-T9).
+         * The signed-in user's own notifications (P1-E4-T9, P2-E6-T4).
          *
          * No permission: a notification belongs to one user and the
          * relationship is what scopes it, so there is nobody else's to name.
+         * Here rather than under `/admin` because this group admits every
+         * staff account, central or branch, and the bell is in both panels.
          */
+        Route::get('notifications', [NotificationController::class, 'index'])
+            ->name('notifications.index');
+
         Route::post('notifications/read', [NotificationController::class, 'markAllRead'])
             ->name('notifications.read');
+
+        Route::post('notifications/{notification}/open', [NotificationController::class, 'open'])
+            ->whereUuid('notification')
+            ->name('notifications.open');
 
         /*
          * The packing list (P3-E6-T4): paid orders, split per warehouse and

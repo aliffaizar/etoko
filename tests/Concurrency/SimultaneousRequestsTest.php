@@ -7,6 +7,7 @@ use App\Exceptions\InsufficientStockException;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
@@ -161,6 +162,20 @@ it('keeps numbering uniquely once the counter is there', function () {
 
     expect($this->refusalsIn($results))->toBe([])
         ->and(array_unique($numbers))->toHaveCount(8);
+});
+
+it('issues one invoice when five callers ask for it at once (P2-E6-T1)', function () {
+    $order = Order::factory()->forBranch(Branch::factory()->create())->paid()->create();
+
+    $results = $this->runWorkers('generate-invoice.php', [(string) $order->id], copies: 5);
+
+    // The listener and a download can both arrive first; the unique index on
+    // `invoices.order_id` lets one insert through and the others read it back.
+    $numbers = array_map(fn (array $result): ?string => $result['invoice'] ?? null, $results);
+
+    expect($this->refusalsIn($results))->toBe([])
+        ->and(array_unique($numbers))->toHaveCount(1)
+        ->and(Invoice::where('order_id', $order->id)->count())->toBe(1);
 });
 
 it('settles a payment exactly once when five staff press confirm together (P2-E1-T4)', function () {

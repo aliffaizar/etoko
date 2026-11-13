@@ -1,5 +1,6 @@
 import type { Auth } from '@/types/auth';
 import type { BreadcrumbItem } from '@/types/navigation';
+import type { NotificationBell } from '@/types/notification';
 import type { ShopContext } from '@/types/shop';
 import type { FlashData } from '@/types/ui';
 
@@ -15,6 +16,8 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             sidebarOpen: boolean;
+            /** The panel's bell (P2-E6-T4); null for a non-staff account. */
+            notificationBell?: NotificationBell | null;
             /**
              * One-shot data from `Inertia::flash()`: the toast every write
              * sends, and the import report of P1-E3-T11.

@@ -1,4 +1,5 @@
 import { Breadcrumbs } from '@/components/breadcrumbs';
+import { NotificationBell } from '@/components/panel/notification-bell';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import type { BreadcrumbItem as BreadcrumbItemType } from '@/types';
 
@@ -12,6 +13,10 @@ export function AppSidebarHeader({
             <div className="flex items-center gap-2">
                 <SidebarTrigger className="-ml-1" />
                 <Breadcrumbs breadcrumbs={breadcrumbs} />
+            </div>
+            {/* Renders nothing for a non-staff account (P2-E6-T4). */}
+            <div className="ms-auto">
+                <NotificationBell />
             </div>
         </header>
     );

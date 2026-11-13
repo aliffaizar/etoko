@@ -2,6 +2,7 @@ import { Head, Link, useForm, usePoll } from '@inertiajs/react';
 import {
     ArrowLeft,
     CheckCircle2,
+    FileText,
     MapPin,
     Package,
     ShoppingBag,
@@ -30,7 +31,7 @@ import { Separator } from '@/components/ui/separator';
 import { formatDateTime, formatRupiah, formatWeight } from '@/lib/format';
 import account from '@/routes/shop/account';
 import { ORDER_STATUS_TONE, PAYMENT_STATUS_TONE } from '@/types/order';
-import type { OrderDetail } from '@/types/order';
+import type { OrderDetail, OrderInvoice } from '@/types/order';
 import type { CustomerPayment, PaymentMethodChoice } from '@/types/payment';
 import type { CustomerRefund, CustomerReturn } from '@/types/return';
 import type { CustomerShipment } from '@/types/shipping';
@@ -59,6 +60,8 @@ type OrderProps = {
     returns: CustomerReturn[];
     /** Money that has come back against this order (P2-E4-T4). */
     refunds: CustomerRefund[];
+    /** Offered once the order has been paid for (P2-E6-T2). */
+    invoice: OrderInvoice | null;
     just_placed: boolean;
 };
 
@@ -77,6 +80,7 @@ export default function OrderPage({
     pickup_code: pickupCode,
     returns,
     refunds,
+    invoice,
     just_placed: justPlaced,
 }: OrderProps) {
     // There is no payment webhook (ADR-053): the server learns that money
@@ -191,7 +195,20 @@ export default function OrderPage({
                         {order.fulfillment_label}
                     </span>
 
-                    <div className="ms-auto">
+                    <div className="ms-auto flex flex-wrap items-center gap-2">
+                        {invoice && (
+                            // A plain link, not an Inertia visit: the answer
+                            // is a PDF download, not a page.
+                            <Button variant="outline" asChild>
+                                <a
+                                    href={account.orders.invoice(order.id).url}
+                                    download
+                                >
+                                    <FileText aria-hidden />
+                                    Unduh invoice
+                                </a>
+                            </Button>
+                        )}
                         {order.can.cancel ? (
                             <Button
                                 variant="outline"

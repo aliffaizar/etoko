@@ -110,6 +110,7 @@ class OrderController extends Controller
             // customer comes back to look at.
             'returns.items.orderItem',
             'refunds',
+            'invoice',
         ]);
 
         $openPayment = $order->openPayment();
@@ -168,6 +169,10 @@ class OrderController extends Controller
                 ->all(),
             // Set by the redirect from checkout, so the confirmation panel
             // appears once rather than every time the order is opened.
+            // The invoice, once the order has been paid for (P2-E6-T2). The
+            // number is null when the listener has not issued it yet; the
+            // download issues it, so the button is offered either way.
+            'invoice' => OrderPresenter::invoice($order),
             'just_placed' => $request->boolean('baru'),
         ]);
     }

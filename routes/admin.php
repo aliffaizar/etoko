@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ProductAttributeController;
@@ -357,6 +358,12 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::get('{order}', [OrderController::class, 'show'])
                 ->middleware('can:orders.view')
                 ->name('show');
+
+            // The order's invoice as a PDF (P2-E6-T2): readable by whoever
+            // may read the order, because it holds nothing more.
+            Route::get('{order}/invoice', InvoiceController::class)
+                ->middleware('can:orders.view')
+                ->name('invoice');
 
             Route::put('{order}/status', [OrderController::class, 'updateStatus'])
                 ->middleware('can:orders.update_status')

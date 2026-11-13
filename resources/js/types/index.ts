@@ -4,6 +4,7 @@ export type * from './branch-catalog';
 export type * from './category';
 export type * from './data-table';
 export type * from './navigation';
+export type * from './notification';
 export type * from './order';
 export type * from './panel';
 export type * from './payment';

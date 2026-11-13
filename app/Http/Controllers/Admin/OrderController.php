@@ -118,6 +118,7 @@ class OrderController extends Controller
             // order it is against.
             'returns' => fn ($q) => $q->withSum('items', 'quantity'),
             'refunds' => fn ($q) => $q->with(['return:id,code', 'payment:id,reference', 'processedBy:id,name']),
+            'invoice',
         ]);
 
         return Inertia::render('admin/orders/show', [
@@ -130,6 +131,10 @@ class OrderController extends Controller
                 'refund' => $actor->can('refund', $order),
             ]),
             'reservations' => OrderPresenter::reservations($order->stockReservations),
+            // The invoice, once the order has been paid for (P2-E6-T2). The
+            // number is null when the listener has not issued it yet; the
+            // download issues it, so the button is offered either way.
+            'invoice' => OrderPresenter::invoice($order),
             'blocked' => [
                 'cancel' => $order->cancellationBlockedReason(asCustomer: false),
                 'assign_branch' => $order->branchReassignmentBlockedReason(),

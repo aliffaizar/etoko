@@ -5,13 +5,13 @@ namespace App\Actions\Order;
 use App\Actions\Payment\ExpirePayment;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Events\OrderStatusChanged;
 use App\Exceptions\IllegalOrderTransitionException;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\ReservationMissingException;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\User;
-use App\Notifications\OrderReadyForPickupNotification;
 use App\Scopes\BranchScope;
 use Illuminate\Support\Facades\DB;
 
@@ -45,16 +45,14 @@ use Illuminate\Support\Facades\DB;
  * point and is refused, instead of writing the same transition twice.
  *
  * 6. **Click & Collect issues its code** (P2-E2-T7). Reaching
- *    `ready_for_pickup` writes `orders.pickup_code` and tells the customer
- *    their goods are waiting. Both belong here rather than in the screen that
- *    pressed the button: a code written outside this transaction could exist
- *    for an order whose transition rolled back, and a customer who was never
- *    told is the whole failure mode of Click & Collect.
- *
- * The notification is queued and `afterCommit`, so a worker never looks for a
- * status this transaction has not finished writing. The **rest** of the order
- * notifications — placed, paid, shipped, completed, cancelled — are `P2-E6-T3`
- * and will hook in exactly here.
+ *    `ready_for_pickup` writes `orders.pickup_code`. It belongs here rather
+ *    than in the screen that pressed the button: a code written outside this
+ *    transaction could exist for an order whose transition rolled back.
+ * 7. **The move is announced** as `OrderStatusChanged` (P2-E6-T1, T3). The
+ *    event waits for this transaction to commit, and its listeners do what
+ *    follows from the new status: the invoice on `paid`, the e-mail to the
+ *    customer, the alert to the branch. None of them can describe a status
+ *    that rolled back, and none of them hold this transaction's locks.
  */
 final class TransitionOrderStatus
 {
@@ -129,7 +127,7 @@ final class TransitionOrderStatus
                 'created_at' => now(),
             ]);
 
-            $this->announce($locked, $to);
+            OrderStatusChanged::dispatch($locked, $from, $to, $actor);
 
             return $locked;
         });
@@ -140,10 +138,13 @@ final class TransitionOrderStatus
      *
      * The first row of a timeline has no status to come from, so it is not a
      * transition and does not go through the checks above. `PlaceOrder` calls
-     * this inside its own transaction.
+     * this inside its own transaction, and the announcement waits for that
+     * transaction to commit like every other.
      */
     public function recordInitial(Order $order, ?User $actor = null, ?string $note = null): OrderStatusHistory
     {
+        OrderStatusChanged::dispatch($order, null, $order->status, $actor);
+
         return OrderStatusHistory::create([
             'order_id' => $order->getKey(),
             'from_status' => null,
@@ -235,30 +236,6 @@ final class TransitionOrderStatus
         }
 
         return $changes;
-    }
-
-    /**
-     * Tell the customer, when the new status is one they are waiting on
-     * (P2-E2-T7).
-     *
-     * Only Click & Collect for now, because it is the one status whose whole
-     * point is that somebody has to come and fetch something. A guest order
-     * (POS, Phase 3) has no account to notify, and the counter has the
-     * customer standing in front of it anyway.
-     */
-    private function announce(Order $order, OrderStatus $to): void
-    {
-        if ($to !== OrderStatus::ReadyForPickup) {
-            return;
-        }
-
-        $customer = $order->user;
-
-        if (! $customer instanceof User) {
-            return;
-        }
-
-        $customer->notify(new OrderReadyForPickupNotification($order));
     }
 
     /**

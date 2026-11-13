@@ -3,7 +3,9 @@
 namespace App\Http\Middleware;
 
 use App\Models\User;
+use App\Support\NotificationPresenter;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\DatabaseNotification;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -16,6 +18,11 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    /**
+     * How many notifications the bell shows before "Lihat semua".
+     */
+    private const BELL_PREVIEW = 6;
 
     /**
      * Determines the current asset version.
@@ -59,7 +66,31 @@ class HandleInertiaRequests extends Middleware
                     : null,
                 'permissions' => $user instanceof User ? $this->permissionsFor($user) : [],
             ],
+            // The panel's bell (P2-E6-T4): staff only, and a closure so a
+            // partial reload that does not ask for it does not pay for it.
+            // Kept apart from any page's own `notifications` prop (the branch
+            // dashboard has one) by its name.
+            'notificationBell' => $user instanceof User && $user->isStaff()
+                ? fn (): array => $this->notificationBell($user)
+                : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+        ];
+    }
+
+    /**
+     * How many notifications are unread, and the latest few to show.
+     *
+     * @return array{unread: int, recent: array<int, array<string, mixed>>}
+     */
+    protected function notificationBell(User $user): array
+    {
+        return [
+            'unread' => $user->unreadNotifications()->count(),
+            'recent' => $user->notifications()
+                ->limit(self::BELL_PREVIEW)
+                ->get()
+                ->map(fn (DatabaseNotification $notification): array => NotificationPresenter::item($notification))
+                ->all(),
         ];
     }
 

@@ -3,6 +3,7 @@ import {
     ArrowLeft,
     ArrowRightLeft,
     Ban,
+    FileText,
     Lock,
     MapPin,
     Package,
@@ -60,6 +61,7 @@ import {
     ORDER_STATUS_TONE,
     PAYMENT_STATUS_TONE,
     type OrderDetail,
+    type OrderInvoice,
     type OrderReservationRow,
 } from '@/types/order';
 import type { PaymentDetail } from '@/types/payment';
@@ -102,6 +104,8 @@ type OrderShowProps = {
     /** Null when the actor may not open a refund at all. */
     refund_options: RefundFormOptions | null;
     can_process_refund: boolean;
+    /** Offered once the order has been paid for (P2-E6-T2). */
+    invoice: OrderInvoice | null;
 };
 
 const RESERVATION_TONE = {
@@ -124,6 +128,7 @@ export default function OrderShow({
     refunds,
     refund_options: refundOptions,
     can_process_refund: canProcessRefund,
+    invoice,
 }: OrderShowProps) {
     const [cancelling, setCancelling] = useState(false);
     const [moving, setMoving] = useState(false);
@@ -217,6 +222,23 @@ export default function OrderShow({
                     <span className="text-sm text-muted-foreground">
                         Kanal: {order.channel === 'pos' ? 'Kasir' : 'Online'}
                     </span>
+                    {invoice && (
+                        // A plain link, not an Inertia visit: the answer is a
+                        // PDF download, not a page.
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="ms-auto"
+                            asChild
+                        >
+                            <a href={orders.invoice(order.id).url} download>
+                                <FileText aria-hidden />
+                                {invoice.number
+                                    ? `Invoice ${invoice.number}`
+                                    : 'Unduh invoice'}
+                            </a>
+                        </Button>
+                    )}
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
