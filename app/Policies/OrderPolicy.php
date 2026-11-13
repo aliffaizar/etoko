@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
 
@@ -64,6 +65,20 @@ class OrderPolicy
         return $user->can('orders.update_status')
             && $this->isWithinReach($user, $order)
             && ! $order->status->isFinal();
+    }
+
+    /**
+     * Starting to pack a paid order from the packing list (P3-E6-T4).
+     *
+     * Only `paid` → `processing`, and only for the actor's own branch: the
+     * packing list is the warehouse's view of an order, and the moves after
+     * it (ship, hand over, cancel) stay with `updateStatus` and `cancel`.
+     */
+    public function pack(User $user, Order $order): bool
+    {
+        return $user->can('orders.pack')
+            && $this->isWithinReach($user, $order)
+            && $order->status === OrderStatus::Paid;
     }
 
     public function cancel(User $user, Order $order): bool

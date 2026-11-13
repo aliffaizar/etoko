@@ -8,6 +8,7 @@ import {
     PackagePlus,
     LayoutGrid,
     Package,
+    PackageCheck,
     ShoppingCart,
     Store,
     Tags,
@@ -21,6 +22,7 @@ import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { PanelSidebar } from '@/components/panel/panel-sidebar';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { dashboard } from '@/routes/branch';
+import packing from '@/routes/branch/packing';
 import stockEntries from '@/routes/branch/stock-entries';
 import stockIssues from '@/routes/branch/stock-issues';
 import stockOpnames from '@/routes/branch/stock-opnames';
@@ -78,6 +80,16 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: ordersIndex(),
                 icon: ShoppingCart,
                 permission: 'orders.view',
+            },
+            // The warehouse's view of the same queue (P3-E6-T4): paid orders
+            // split per warehouse and shelf. Warehouse staff hold
+            // `orders.pack` but not `orders.view`, so for them this is the
+            // only order item in the menu.
+            {
+                title: 'Daftar Kemas',
+                href: packing.index(),
+                icon: PackageCheck,
+                permission: 'orders.pack',
             },
             // The branch's own payment queue, on the same screens central uses
             // (P2-E1-T4). `Payment` carries the branch global scope through a

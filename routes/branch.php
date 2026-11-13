@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Branch\DashboardController;
 use App\Http\Controllers\Branch\NotificationController;
+use App\Http\Controllers\Branch\PackingController;
 use App\Http\Controllers\Branch\StockController;
 use App\Http\Controllers\Branch\StockEntryController;
 use App\Http\Controllers\Branch\StockIssueController;
@@ -36,6 +37,22 @@ Route::middleware(['auth', 'verified', 'branch'])
          */
         Route::post('notifications/read', [NotificationController::class, 'markAllRead'])
             ->name('notifications.read');
+
+        /*
+         * The packing list (P3-E6-T4): paid orders, split per warehouse and
+         * shelf, and the one move warehouse staff make — paid → processing.
+         * `{order}` binds through the branch global scope, so another
+         * branch's order is a 404; `OrderPolicy::pack` has the last word.
+         */
+        Route::prefix('packing')->name('packing.')->group(function () {
+            Route::get('/', [PackingController::class, 'index'])
+                ->middleware('can:orders.pack')
+                ->name('index');
+
+            Route::post('{order}/start', [PackingController::class, 'start'])
+                ->middleware('can:orders.pack')
+                ->name('start');
+        });
 
         /*
          * Stock per warehouse (P1-E4-T3, T4, T8).

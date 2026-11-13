@@ -186,3 +186,34 @@ export type OrderReservationRow = {
 };
 
 export type PaginatedOrders = Paginated<OrderRow>;
+
+/** One line of a packing list: what to take from one warehouse (P3-E6-T4). */
+export type PackingLine = {
+    sku: string;
+    product_name: string;
+    variant_name: string | null;
+    quantity: number;
+    shelf_location: string | null;
+};
+
+/** The lines of an order that come out of one warehouse. */
+export type PackingPick = {
+    warehouse: string;
+    lines: PackingLine[];
+};
+
+/** A paid or in-progress order as the warehouse reads it (`PackingListPresenter`). */
+export type PackingOrder = {
+    id: number;
+    order_number: string;
+    status: string;
+    status_label: string;
+    fulfillment_type: 'delivery' | 'pickup';
+    fulfillment_label: string;
+    customer_name: string;
+    customer_note: string | null;
+    paid_at: string | null;
+    processed_at: string | null;
+    unit_count: number;
+    picks: PackingPick[];
+};

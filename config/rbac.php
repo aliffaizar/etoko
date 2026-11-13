@@ -40,7 +40,11 @@ return [
             'stock_transfers.ship', 'stock_transfers.receive',
         ],
         'stock_opnames' => ['stock_opnames.view', 'stock_opnames.create', 'stock_opnames.complete'],
-        'orders' => ['orders.view', 'orders.update_status', 'orders.cancel', 'orders.assign_branch'],
+        // `orders.pack` is the warehouse's part of an order (P3-E6-T4): the
+        // packing list and its one button, paid → processing. Narrower than
+        // `orders.update_status` on purpose, so the people who pick goods do
+        // not also ship, hand over or cancel them.
+        'orders' => ['orders.view', 'orders.update_status', 'orders.cancel', 'orders.assign_branch', 'orders.pack'],
         'payments' => ['payments.view', 'payments.verify', 'payments.refund'],
         'shipments' => ['shipments.view', 'shipments.manage'],
         'returns' => ['returns.view', 'returns.approve', 'refunds.process'],
@@ -106,7 +110,7 @@ return [
             'stock_transfers.view', 'stock_transfers.request', 'stock_transfers.approve',
             'stock_transfers.ship', 'stock_transfers.receive',
             'stock_opnames.view', 'stock_opnames.create', 'stock_opnames.complete',
-            'orders.view', 'orders.update_status', 'orders.cancel', 'orders.assign_branch',
+            'orders.view', 'orders.update_status', 'orders.cancel', 'orders.assign_branch', 'orders.pack',
             'payments.view', 'payments.verify', 'payments.refund',
             'shipments.view', 'shipments.manage',
             'returns.view', 'returns.approve', 'refunds.process',
@@ -132,7 +136,7 @@ return [
             'stock_transfers.view', 'stock_transfers.request', 'stock_transfers.approve',
             'stock_transfers.ship', 'stock_transfers.receive',
             'stock_opnames.view', 'stock_opnames.create', 'stock_opnames.complete',
-            'orders.view', 'orders.update_status', 'orders.cancel',
+            'orders.view', 'orders.update_status', 'orders.cancel', 'orders.pack',
             'payments.view', 'payments.verify',
             'shipments.view', 'shipments.manage',
             'returns.view', 'returns.approve',
@@ -150,6 +154,7 @@ return [
             'stock_entries.view', 'stock_entries.create', 'stock_entries.post',
             'stock_issues.view', 'stock_issues.create', 'stock_issues.post',
             'stock_transfers.view', 'stock_transfers.request',
+            'orders.pack',
             // Warehouse staff open a count and type what they find, but do not
             // close it: completing an opname is the moment the variances hit
             // the ledger and the branch's figures change, so the person who
