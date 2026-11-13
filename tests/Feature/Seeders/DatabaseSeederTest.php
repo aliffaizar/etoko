@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\StockTransferStatus;
 use App\Models\AuditLog;
 use App\Models\Category;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Stock;
+use App\Models\StockTransfer;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 
@@ -66,4 +68,14 @@ it('leaves stocks reconcilable against the ledger (ADR-024)', function () {
     expect($drifted)->toBeEmpty()
         ->and(Stock::acrossBranches()->where('quantity', '<', 0)->count())->toBe(0)
         ->and(Stock::acrossBranches()->whereColumn('reserved_quantity', '>', 'quantity')->count())->toBe(0);
+});
+
+it('seeds one stock transfer at each step worth looking at (P2-E3)', function () {
+    $statuses = StockTransfer::acrossBranches()->orderBy('id')->pluck('status')->all();
+
+    expect($statuses)->toBe([
+        StockTransferStatus::Requested,
+        StockTransferStatus::InTransit,
+        StockTransferStatus::PartiallyReceived,
+    ]);
 });

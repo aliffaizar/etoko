@@ -24,7 +24,8 @@ import { formatNumber, formatRelative } from '@/lib/format';
 import { dashboard } from '@/routes/branch';
 import notifications from '@/routes/branch/notifications';
 import stocks from '@/routes/branch/stocks';
-import type { LowStockAlert, LowStockRow } from '@/types';
+import stockTransfers from '@/routes/branch/stock-transfers';
+import type { BranchAlert, LowStockRow } from '@/types';
 
 type DashboardProps = {
     stats: {
@@ -34,7 +35,7 @@ type DashboardProps = {
         open_drafts: number;
     };
     lowStock: LowStockRow[];
-    notifications: LowStockAlert[];
+    notifications: BranchAlert[];
 };
 
 /**
@@ -191,7 +192,7 @@ export default function BranchDashboard({
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex flex-wrap items-center gap-2">
-                                Peringatan stok
+                                Notifikasi
                                 {unreadCount > 0 && (
                                     <StatusBadge
                                         label={`${unreadCount} baru`}
@@ -200,8 +201,9 @@ export default function BranchDashboard({
                                 )}
                             </CardTitle>
                             <CardDescription>
-                                Angka di sini adalah angka saat peringatan
-                                dikirim, bukan angka sekarang.
+                                Stok rendah dan langkah transfer stok. Angka di
+                                sini adalah angka saat notifikasi dikirim, bukan
+                                angka sekarang.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-3">
@@ -212,11 +214,12 @@ export default function BranchDashboard({
                                         className="size-5 text-muted-foreground"
                                     />
                                     <p className="text-sm font-medium">
-                                        Belum ada peringatan
+                                        Belum ada notifikasi
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                        Peringatan dikirim saat stok melewati
-                                        ambang minimumnya.
+                                        Notifikasi dikirim saat stok melewati
+                                        ambang minimumnya, atau saat transfer
+                                        stok menunggu Anda.
                                     </p>
                                 </div>
                             ) : (
@@ -236,7 +239,19 @@ export default function BranchDashboard({
                                             />
                                             <div className="min-w-0">
                                                 <p className="text-sm">
-                                                    {alert.message}
+                                                    {alert.type ===
+                                                    'stock_transfer' ? (
+                                                        <Link
+                                                            href={stockTransfers.show(
+                                                                alert.stock_transfer_id,
+                                                            )}
+                                                            className="underline-offset-4 hover:underline"
+                                                        >
+                                                            {alert.message}
+                                                        </Link>
+                                                    ) : (
+                                                        alert.message
+                                                    )}
                                                 </p>
                                                 <p className="text-xs text-muted-foreground">
                                                     {formatRelative(

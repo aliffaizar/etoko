@@ -94,6 +94,16 @@ class Warehouse extends Model
             return "Gudang ini masih memegang {$onHand} unit stok. Pindahkan atau keluarkan stoknya terlebih dahulu.";
         }
 
+        $isOnTransfer = StockTransfer::acrossBranches()
+            ->where(fn ($either) => $either
+                ->where('from_warehouse_id', $this->getKey())
+                ->orWhere('to_warehouse_id', $this->getKey()))
+            ->exists();
+
+        if ($isOnTransfer) {
+            return 'Gudang ini tercatat di dokumen transfer stok, jadi tidak dapat dihapus. Nonaktifkan gudang bila tidak dipakai lagi.';
+        }
+
         if ($this->stockMovements()->exists()) {
             return 'Gudang ini sudah punya riwayat pergerakan stok, jadi tidak dapat dihapus. Nonaktifkan gudang bila tidak dipakai lagi.';
         }

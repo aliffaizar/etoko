@@ -9,6 +9,7 @@ use App\Models\StockIssue;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Notifications\LowStockNotification;
+use App\Notifications\StockTransferNotification;
 use Illuminate\Notifications\DatabaseNotification;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -48,7 +49,7 @@ class DashboardController extends Controller
                     + StockIssue::query()->where('status', 'draft')->count(),
             ],
             'lowStock' => $this->lowStockPreview(),
-            'notifications' => $this->lowStockNotifications($actor),
+            'notifications' => $this->notificationFeed($actor),
         ]);
     }
 
@@ -86,17 +87,20 @@ class DashboardController extends Controller
     }
 
     /**
-     * The actor's own low-stock alerts, newest first.
+     * The actor's own low-stock and stock transfer alerts, newest first
+     * (P1-E4-T9, P2-E3-T6).
      *
-     * Read from the payload the notification stored rather than from `stocks`,
-     * because the point of the feed is what was true when it fired.
+     * Read from the payload the notification stored rather than from `stocks`
+     * or `stock_transfers`, because the point of the feed is what was true
+     * when it fired. A transfer alert carries `stock_transfer_id`, which the
+     * screen turns into a link.
      *
      * @return array<int, array<string, mixed>>
      */
-    private function lowStockNotifications(User $actor): array
+    private function notificationFeed(User $actor): array
     {
         return $actor->notifications()
-            ->where('type', LowStockNotification::class)
+            ->whereIn('type', [LowStockNotification::class, StockTransferNotification::class])
             ->limit(self::PREVIEW_ROWS)
             ->get()
             ->map(fn (DatabaseNotification $notification): array => [

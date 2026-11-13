@@ -296,6 +296,7 @@ export type LowStockRow = {
  */
 export type LowStockAlert = {
     id: string;
+    type: 'low_stock';
     is_read: boolean;
     created_at: string | null;
     message: string;
@@ -304,4 +305,91 @@ export type LowStockAlert = {
     warehouse_name: string;
     quantity: number;
     min_quantity: number;
+};
+
+/** A stock transfer step, as the notification recorded it (P2-E3-T6). */
+export type StockTransferAlert = {
+    id: string;
+    type: 'stock_transfer';
+    is_read: boolean;
+    created_at: string | null;
+    message: string;
+    stock_transfer_id: number;
+    code: string;
+    status: string;
+};
+
+/** One entry of the branch dashboard's notification feed. */
+export type BranchAlert = LowStockAlert | StockTransferAlert;
+
+/** A branch at one end of a stock transfer. */
+export type StockTransferBranch = {
+    id: number;
+    name: string;
+    code: string;
+};
+
+/**
+ * One row of the stock transfer listing (P2-E3-T3).
+ *
+ * `direction` is relative to the branch the screen stands in, and null when a
+ * central actor is looking at every branch.
+ */
+export type StockTransferRow = {
+    id: number;
+    code: string;
+    status: string;
+    status_label: string;
+    direction: 'incoming' | 'outgoing' | null;
+    from_branch: StockTransferBranch;
+    to_branch: StockTransferBranch;
+    item_count: number;
+    total_requested: number;
+    requested_by: string | null;
+    requested_at: string | null;
+};
+
+export type StockTransferSummary = {
+    to_approve: number;
+    to_ship: number;
+    to_receive: number;
+    waiting_on_others: number;
+};
+
+/**
+ * One line of a transfer, with a figure for each step. Each stays null until
+ * its step has happened. `origin_*` is only sent to the end that decides and
+ * packs (BR-3).
+ */
+export type StockTransferLine = {
+    id: number;
+    product_variant_id: number;
+    sku: string;
+    display_name: string;
+    product_name: string;
+    quantity_requested: number;
+    quantity_approved: number | null;
+    quantity_shipped: number | null;
+    quantity_received: number | null;
+    discrepancy: number;
+    origin_on_hand: number | null;
+    origin_available: number | null;
+};
+
+export type StockTransferStep = {
+    key: string;
+    label: string;
+    at: string | null;
+    by: string | null;
+};
+
+export type StockTransferDetail = StockTransferRow & {
+    from_warehouse: StockTransferBranch;
+    to_warehouse: StockTransferBranch;
+    notes: string | null;
+    rejection_reason: string | null;
+    receipt_notes: string | null;
+    total_discrepancy: number;
+    steps: StockTransferStep[];
+    items: StockTransferLine[];
 };

@@ -1,4 +1,5 @@
 import {
+    ArrowRightLeft,
     Banknote,
     Boxes,
     ClipboardList,
@@ -23,6 +24,7 @@ import { dashboard } from '@/routes/branch';
 import stockEntries from '@/routes/branch/stock-entries';
 import stockIssues from '@/routes/branch/stock-issues';
 import stockOpnames from '@/routes/branch/stock-opnames';
+import stockTransfers from '@/routes/branch/stock-transfers';
 import stocks from '@/routes/branch/stocks';
 import { edit as branchEdit } from '@/routes/admin/branches';
 import branchPrices from '@/routes/admin/branches/prices';
@@ -133,6 +135,14 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: stockIssues.index(),
                 icon: PackageMinus,
                 permission: 'stock_issues.view',
+            },
+            // Two branches per document, so the listing shows what comes in
+            // and what goes out; the policy decides which end may act (P2-E3).
+            {
+                title: 'Transfer Stok',
+                href: stockTransfers.index(),
+                icon: ArrowRightLeft,
+                permission: 'stock_transfers.view',
             },
             {
                 title: 'Stok Opname',

@@ -213,6 +213,12 @@ class Branch extends Model
             return "Cabang ini masih memiliki {$staffCount} akun staf. Pindahkan atau hapus akun tersebut terlebih dahulu.";
         }
 
+        $transferCount = StockTransfer::acrossBranches()->visibleToBranch($this->getKey())->count();
+
+        if ($transferCount > 0) {
+            return "Cabang ini tercatat di {$transferCount} transfer stok. Dokumen transfer menjelaskan pergerakan stok di dua cabang, jadi cabang ini tidak dapat dihapus. Nonaktifkan cabang bila tidak dipakai lagi.";
+        }
+
         $orderCount = Order::acrossBranches()->withTrashed()->where('branch_id', $this->getKey())->count();
 
         if ($orderCount > 0) {

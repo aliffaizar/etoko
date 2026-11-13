@@ -6,6 +6,7 @@ use App\Http\Controllers\Branch\StockController;
 use App\Http\Controllers\Branch\StockEntryController;
 use App\Http\Controllers\Branch\StockIssueController;
 use App\Http\Controllers\Branch\StockOpnameController;
+use App\Http\Controllers\Branch\StockTransferController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -139,6 +140,56 @@ Route::middleware(['auth', 'verified', 'branch'])
 
             Route::post('{issue}/cancel', [StockIssueController::class, 'cancel'])
                 ->middleware('can:stock_issues.create')
+                ->name('cancel');
+        });
+
+        /*
+         * Stock transfers between branches (P2-E3).
+         *
+         * One route per step, because each step belongs to a different end of
+         * the transfer: the destination requests, cancels and receives; the
+         * origin (or central) approves and rejects; the origin ships. The
+         * route permission is the first gate, `StockTransferPolicy` the second
+         * — it is the policy that knows which end the actor is standing at.
+         *
+         * `{transfer}` binds through `StockTransferBranchScope`, so a branch
+         * that is neither end gets a 404 (P2-E3-T5).
+         */
+        Route::prefix('stock-transfers')->name('stock-transfers.')->group(function () {
+            Route::get('/', [StockTransferController::class, 'index'])
+                ->middleware('can:stock_transfers.view')
+                ->name('index');
+
+            Route::get('create', [StockTransferController::class, 'create'])
+                ->middleware('can:stock_transfers.request')
+                ->name('create');
+
+            Route::post('/', [StockTransferController::class, 'store'])
+                ->middleware('can:stock_transfers.request')
+                ->name('store');
+
+            Route::get('{transfer}', [StockTransferController::class, 'show'])
+                ->middleware('can:stock_transfers.view')
+                ->name('show');
+
+            Route::post('{transfer}/approve', [StockTransferController::class, 'approve'])
+                ->middleware('can:stock_transfers.approve')
+                ->name('approve');
+
+            Route::post('{transfer}/reject', [StockTransferController::class, 'reject'])
+                ->middleware('can:stock_transfers.approve')
+                ->name('reject');
+
+            Route::post('{transfer}/ship', [StockTransferController::class, 'ship'])
+                ->middleware('can:stock_transfers.ship')
+                ->name('ship');
+
+            Route::post('{transfer}/receive', [StockTransferController::class, 'receive'])
+                ->middleware('can:stock_transfers.receive')
+                ->name('receive');
+
+            Route::post('{transfer}/cancel', [StockTransferController::class, 'cancel'])
+                ->middleware('can:stock_transfers.request')
                 ->name('cancel');
         });
 
