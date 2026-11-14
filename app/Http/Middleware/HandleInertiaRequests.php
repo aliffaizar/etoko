@@ -89,7 +89,7 @@ class HandleInertiaRequests extends Middleware
             'recent' => $user->notifications()
                 ->limit(self::BELL_PREVIEW)
                 ->get()
-                ->map(fn (DatabaseNotification $notification): array => NotificationPresenter::item($notification))
+                ->map(fn (DatabaseNotification $notification): array => NotificationPresenter::item($notification, $user))
                 ->all(),
         ];
     }

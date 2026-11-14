@@ -16,8 +16,10 @@ use Illuminate\Support\Facades\Notification;
  *
  * `paid` is the one moment the order becomes the branch's job: before it there
  * is nothing to pack, and after it the branch itself is the one moving it.
- * The audience is the branch's active staff holding `orders.update_status` —
- * the people who press "Proses" — following `NotifyStockTransferParties`:
+ * The audience is the branch's active staff holding `orders.update_status` or
+ * `orders.pack` — the people who press "Proses" on the order screen or "Mulai
+ * kemas" on the packing list (NTF-02, ADR-062) — following
+ * `NotifyStockTransferParties`:
  * central staff are not notified (their order listing shows every branch),
  * and whoever confirmed the payment is not told about their own click.
  */
@@ -43,7 +45,7 @@ class NotifyBranchOfPaidOrder
     }
 
     /**
-     * The branch's active staff who move orders along.
+     * The branch's active staff who move orders along or pack them.
      *
      * The restriction is lifted around the lookup, as in `NotifyLowStock`:
      * the payment may be confirmed by central staff or by nobody at all (the
@@ -59,7 +61,7 @@ class NotifyBranchOfPaidOrder
                 ->where('branch_id', $branchId)
                 ->where('is_active', true)
                 ->get()
-                ->filter(fn (User $user): bool => $user->can('orders.update_status'))
+                ->filter(fn (User $user): bool => $user->can('orders.update_status') || $user->can('orders.pack'))
                 ->toBase(),
         );
     }

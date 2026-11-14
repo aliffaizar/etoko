@@ -20,9 +20,10 @@ beforeEach(function () {
     $this->order = Order::factory()->forBranch($this->branch)->paid()->create();
 });
 
-it('tells the branch staff who move orders along, and nobody else', function () {
+it('tells the branch staff who move orders along or pack them, and nobody else', function () {
     $admin = User::factory()->adminCabang($this->branch)->create();
     $warehouse = User::factory()->staffGudang($this->branch)->create();
+    $cashier = User::factory()->kasir($this->branch)->create();
     $inactive = User::factory()->adminCabang($this->branch)->inactive()->create();
     $elsewhere = User::factory()->adminCabang($this->otherBranch)->create();
     $central = User::factory()->adminPusat()->create();
@@ -30,7 +31,8 @@ it('tells the branch staff who move orders along, and nobody else', function () 
     OrderStatusChanged::dispatch($this->order, OrderStatus::PendingPayment, OrderStatus::Paid);
 
     Notification::assertSentTo($admin, OrderAwaitingBranchNotification::class);
-    foreach ([$warehouse, $inactive, $elsewhere, $central] as $nobody) {
+    Notification::assertSentTo($warehouse, OrderAwaitingBranchNotification::class);
+    foreach ([$cashier, $inactive, $elsewhere, $central] as $nobody) {
         Notification::assertNotSentTo($nobody, OrderAwaitingBranchNotification::class);
     }
 });

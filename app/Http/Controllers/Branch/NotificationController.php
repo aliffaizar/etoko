@@ -36,7 +36,7 @@ class NotificationController extends Controller
         $notifications = ($unreadOnly ? $actor->unreadNotifications() : $actor->notifications())
             ->paginate(self::PER_PAGE)
             ->withQueryString()
-            ->through(fn (DatabaseNotification $notification): array => NotificationPresenter::item($notification));
+            ->through(fn (DatabaseNotification $notification): array => NotificationPresenter::item($notification, $actor));
 
         return Inertia::render('branch/notifications/index', [
             'notifications' => $notifications,
@@ -60,7 +60,7 @@ class NotificationController extends Controller
         $found = $actor->notifications()->whereKey($notification)->firstOrFail();
         $found->markAsRead();
 
-        $url = NotificationPresenter::item($found)['url'];
+        $url = NotificationPresenter::item($found, $actor)['url'];
 
         return $url === null ? back() : redirect()->to($url);
     }

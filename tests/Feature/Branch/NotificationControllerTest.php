@@ -60,6 +60,19 @@ it('marks a notification read on the way to what it is about', function () {
     expect($this->admin->unreadNotifications()->count())->toBe(0);
 });
 
+it('takes warehouse staff to the packing list, since the order screen is not theirs', function () {
+    $warehouse = User::factory()->staffGudang($this->branch)->create();
+    $id = notifyAboutOrder($warehouse, $this->order);
+
+    $this->actingAs($warehouse)
+        ->get(route('branch.notifications.index'))
+        ->assertInertia(fn ($page) => $page->where('notifications.data.0.url', route('branch.packing.index')));
+
+    $this->actingAs($warehouse)
+        ->post(route('branch.notifications.open', $id))
+        ->assertRedirect(route('branch.packing.index'));
+});
+
 it('does not open somebody else notification', function () {
     $id = notifyAboutOrder(User::factory()->adminCabang($this->branch)->create(), $this->order);
 

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\User;
 use Illuminate\Notifications\DatabaseNotification;
 
 /**
@@ -16,13 +17,19 @@ use Illuminate\Notifications\DatabaseNotification;
  *
  * An unknown `type` still renders, with no link: a notification written by a
  * class that has since been removed is old news, not an error.
+ *
+ * The link depends on who is reading, because one notification can reach
+ * people with different screens: "pesanan perlu diproses" opens the order for
+ * staff who can read orders, and the packing list for warehouse staff who only
+ * hold `orders.pack` (NTF-02, ADR-062) — the order screen would be a 403 for
+ * them.
  */
 final class NotificationPresenter
 {
     /**
      * @return array{id: string, type: string, title: string, message: string, url: string|null, is_read: bool, created_at: string|null}
      */
-    public static function item(DatabaseNotification $notification): array
+    public static function item(DatabaseNotification $notification, User $viewer): array
     {
         /** @var array<string, mixed> $data */
         $data = $notification->data;
@@ -33,7 +40,7 @@ final class NotificationPresenter
             'type' => $type,
             'title' => self::title($type),
             'message' => (string) ($data['message'] ?? ''),
-            'url' => self::url($type, $data),
+            'url' => self::url($type, $data, $viewer),
             'is_read' => $notification->read_at !== null,
             'created_at' => $notification->created_at?->toIso8601String(),
         ];
@@ -54,7 +61,7 @@ final class NotificationPresenter
     /**
      * @param  array<string, mixed>  $data
      */
-    private static function url(string $type, array $data): ?string
+    private static function url(string $type, array $data, User $viewer): ?string
     {
         return match ($type) {
             'low_stock' => isset($data['product_variant_id'], $data['warehouse_id'])
@@ -66,13 +73,29 @@ final class NotificationPresenter
             'stock_transfer' => isset($data['stock_transfer_id'])
                 ? route('branch.stock-transfers.show', $data['stock_transfer_id'])
                 : null,
-            'order_awaiting_branch' => isset($data['order_id'])
-                ? route('admin.orders.show', $data['order_id'])
-                : null,
+            'order_awaiting_branch' => self::awaitingOrderUrl($data, $viewer),
             'order_status', 'order_ready_for_pickup' => isset($data['order_id'])
                 ? route('shop.account.orders.show', $data['order_id'])
                 : null,
             default => null,
         };
+    }
+
+    /**
+     * Where "pesanan perlu diproses" takes this reader.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private static function awaitingOrderUrl(array $data, User $viewer): ?string
+    {
+        if (! isset($data['order_id'])) {
+            return null;
+        }
+
+        if ($viewer->can('orders.view')) {
+            return route('admin.orders.show', $data['order_id']);
+        }
+
+        return $viewer->can('orders.pack') ? route('branch.packing.index') : null;
     }
 }
