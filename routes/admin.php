@@ -23,6 +23,7 @@ use App\Http\Controllers\Admin\ReturnController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\VoucherController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -334,6 +335,21 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::delete('{category}', [CategoryController::class, 'destroy'])
                 ->middleware('can:categories.delete')
                 ->name('destroy');
+        });
+
+        /*
+         * Vouchers (P2-E5-T2). Marketing is central: every route needs
+         * `vouchers.manage` and `VoucherPolicy` also demands a central actor,
+         * so the permission granted to a branch role opens nothing.
+         */
+        Route::prefix('vouchers')->name('vouchers.')->middleware('can:vouchers.manage')->group(function () {
+            Route::get('/', [VoucherController::class, 'index'])->name('index');
+            Route::get('create', [VoucherController::class, 'create'])->name('create');
+            Route::post('/', [VoucherController::class, 'store'])->name('store');
+            Route::get('{voucher}/edit', [VoucherController::class, 'edit'])->name('edit');
+            Route::put('{voucher}', [VoucherController::class, 'update'])->name('update');
+            Route::patch('{voucher}/status', [VoucherController::class, 'updateStatus'])->name('status.update');
+            Route::delete('{voucher}', [VoucherController::class, 'destroy'])->name('destroy');
         });
 
         /*

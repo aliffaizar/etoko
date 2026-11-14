@@ -21,10 +21,12 @@ class CheckoutFailedException extends RuntimeException
 {
     /**
      * @param  array<int, string>  $problems
+     * @param  bool  $concernsVoucher  Whether the refusal is about the applied voucher, so the screen puts it beside the voucher field (P2-E5-T3).
      */
     public function __construct(
         string $message,
         public readonly array $problems = [],
+        public readonly bool $concernsVoucher = false,
     ) {
         parent::__construct($message);
     }
@@ -87,5 +89,17 @@ class CheckoutFailedException extends RuntimeException
                 .'Keranjang sudah diperbarui — periksa totalnya sebelum melanjutkan.',
             $problems,
         );
+    }
+
+    /**
+     * The applied voucher cannot be used on this order (P2-E5-T3, T4).
+     *
+     * Nothing is written: the customer agreed to a total that included the
+     * discount, so the order is not placed without it. They remove the
+     * voucher or fix what the reason names, and try again.
+     */
+    public static function voucherRejected(string $reason): self
+    {
+        return new self($reason, concernsVoucher: true);
     }
 }

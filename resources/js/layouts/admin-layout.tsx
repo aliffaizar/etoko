@@ -12,6 +12,7 @@ import {
     ShieldCheck,
     ShoppingCart,
     Store,
+    TicketPercent,
     UserCheck,
     Undo2,
     Users,
@@ -33,6 +34,7 @@ import { index as refundsIndex } from '@/routes/admin/refunds';
 import { index as returnsIndex } from '@/routes/admin/returns';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
+import { index as vouchersIndex } from '@/routes/admin/vouchers';
 import stockEntries from '@/routes/branch/stock-entries';
 import stockIssues from '@/routes/branch/stock-issues';
 import stockOpnames from '@/routes/branch/stock-opnames';
@@ -171,6 +173,19 @@ const navGroups: PanelNavGroup[] = [
                 href: customersIndex(),
                 icon: UserCheck,
                 permission: 'customers.view',
+            },
+        ],
+    },
+    {
+        // Central only: `VoucherPolicy` demands a central actor on top of the
+        // permission, so the item is hidden from anyone it would refuse.
+        label: 'Marketing',
+        items: [
+            {
+                title: 'Voucher',
+                href: vouchersIndex(),
+                icon: TicketPercent,
+                permission: 'vouchers.manage',
             },
         ],
     },

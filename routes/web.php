@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Shop\AddressController;
 use App\Http\Controllers\Shop\BranchController;
 use App\Http\Controllers\Shop\CartController;
+use App\Http\Controllers\Shop\CartVoucherController;
 use App\Http\Controllers\Shop\CatalogController;
 use App\Http\Controllers\Shop\CheckoutController;
 use App\Http\Controllers\Shop\HomeController;
@@ -97,6 +98,19 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
     Route::prefix('keranjang')->name('cart.')->group(function () {
         Route::get('/', [CartController::class, 'index'])->name('index');
         Route::post('/', [CartController::class, 'store'])->name('store');
+
+        /*
+         * The cart's voucher (P2-E5-T3). Signed in only — every voucher has a
+         * per-customer allowance to count against. Registered before
+         * `{cartItem}` so `DELETE keranjang/voucher` is not read as a line id.
+         */
+        Route::middleware(['auth', 'verified'])->prefix('voucher')->name('voucher.')->group(function () {
+            Route::post('/', [CartVoucherController::class, 'store'])
+                ->middleware('throttle:20,1')
+                ->name('store');
+            Route::delete('/', [CartVoucherController::class, 'destroy'])->name('destroy');
+        });
+
         Route::patch('{cartItem}', [CartController::class, 'update'])->name('update');
         Route::delete('{cartItem}', [CartController::class, 'destroy'])->name('destroy');
     });

@@ -2,6 +2,7 @@
 
 namespace App\Services\Cart;
 
+use App\Enums\FulfillmentType;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -10,6 +11,9 @@ use App\Models\User;
 use App\Services\Inventory\StockAllocator;
 use App\Services\Pricing\EffectivePriceResolver;
 use App\Services\Pricing\ResolvedPrice;
+use App\Services\Pricing\VoucherLine;
+use App\Services\Pricing\VoucherOutcome;
+use App\Services\Pricing\VoucherValidator;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Support\Str;
 
@@ -40,6 +44,7 @@ final class CartService
         private readonly Session $session,
         private readonly EffectivePriceResolver $priceResolver,
         private readonly StockAllocator $stockAllocator,
+        private readonly VoucherValidator $voucherValidator,
     ) {}
 
     /**
@@ -155,6 +160,44 @@ final class CartService
     private function catalogPrice(ProductVariant $variant): ResolvedPrice
     {
         return $this->priceResolver->for($variant, null);
+    }
+
+    /**
+     * What the cart's voucher does for this basket, or null when it has none
+     * (P2-E5-T3).
+     *
+     * The cart and checkout screens ask through here, `PlaceOrder` asks the
+     * validator with its own freshly priced lines — the same rules either way.
+     * The lines are read from the cart's snapshots, so the items must be
+     * loaded with `variant.product`.
+     *
+     * @param  int|null  $shippingCost  The delivery charge, when it is known.
+     */
+    public function voucherOutcome(
+        Cart $cart,
+        ?Branch $branch,
+        ?User $user,
+        ?FulfillmentType $fulfillment = null,
+        ?int $shippingCost = null,
+    ): ?VoucherOutcome {
+        if ($cart->voucher_id === null) {
+            return null;
+        }
+
+        $voucher = $cart->voucher;
+
+        if ($voucher === null) {
+            return null;
+        }
+
+        return $this->voucherValidator->check(
+            $voucher,
+            $cart->items->map(fn (CartItem $item): VoucherLine => VoucherLine::fromCartItem($item))->all(),
+            $branch,
+            $user,
+            fulfillment: $fulfillment,
+            shippingCost: $shippingCost,
+        );
     }
 
     /**

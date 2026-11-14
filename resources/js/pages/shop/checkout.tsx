@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from 'react';
 import { PaymentMethodPicker } from '@/components/shop/payment-method-picker';
 import { ShippingOptionPicker } from '@/components/shop/shipping-option-picker';
+import { VoucherBox } from '@/components/shop/voucher-box';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -26,6 +27,7 @@ import { index as cartIndex } from '@/routes/shop/cart';
 import type { FulfillmentType } from '@/types/order';
 import type { CheckoutPaymentMethods } from '@/types/payment';
 import type { CheckoutShipping } from '@/types/shipping';
+import type { BasketVoucher } from '@/types/voucher';
 
 type CheckoutItem = {
     id: number;
@@ -85,6 +87,12 @@ type CheckoutProps = {
      */
     payment_methods: CheckoutPaymentMethods;
     reservation_minutes: number;
+    /**
+     * The cart's voucher, checked against the basket (P2-E5-T3). A
+     * free-shipping one comes with no `shipping_discount`: it is worked out
+     * here for the courier picked, by the same rule `PlaceOrder` applies.
+     */
+    voucher: BasketVoucher | null;
 };
 
 type CheckoutForm = {
@@ -106,6 +114,7 @@ export default function Checkout({
     shipping,
     payment_methods: paymentMethods,
     reservation_minutes: reservationMinutes,
+    voucher,
 }: CheckoutProps) {
     const firstOption = branch.fulfillment_options[0]?.value ?? 'delivery';
     const defaultAddress =
@@ -155,8 +164,31 @@ export default function Checkout({
         ? 0
         : (selectedOption?.cost ?? costs.flat_shipping_cost);
 
-    const tax = Math.round((cart.subtotal * costs.tax_percent) / 100);
-    const orderTotal = cart.subtotal + shippingCost + tax;
+    /**
+     * The voucher comes off the way `PlaceOrder` takes it: goods discount off
+     * the subtotal before tax, free shipping off the chosen courier's charge
+     * up to its ceiling. A free-shipping voucher on a pickup is refused by the
+     * server, so the button waits until it is removed or delivery is chosen.
+     */
+    const voucherAccepted = voucher?.is_accepted === true;
+    const goodsDiscount = voucherAccepted ? voucher.goods_discount : 0;
+    const shippingDiscount =
+        voucherAccepted && voucher.discounts_shipping && !isPickup
+            ? Math.min(shippingCost, voucher.max_discount ?? shippingCost)
+            : 0;
+    const voucherProblem = !voucher
+        ? undefined
+        : !voucher.is_accepted
+          ? (voucher.rejection ?? undefined)
+          : voucher.discounts_shipping && isPickup
+            ? 'Voucher gratis ongkir hanya berlaku untuk pesanan yang dikirim.'
+            : undefined;
+
+    const tax = Math.round(
+        ((cart.subtotal - goodsDiscount) * costs.tax_percent) / 100,
+    );
+    const orderTotal =
+        cart.subtotal - goodsDiscount + shippingCost - shippingDiscount + tax;
 
     const methodsForFulfillment = paymentMethods[form.data.fulfillment_type];
     const selectedMethod = methodsForFulfillment.find(
@@ -622,6 +654,22 @@ export default function Checkout({
                                         : formatRupiah(shippingCost)}
                                 </dd>
                             </div>
+                            {goodsDiscount + shippingDiscount > 0 && (
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-muted-foreground">
+                                        {shippingDiscount > 0
+                                            ? 'Gratis ongkir'
+                                            : 'Diskon'}{' '}
+                                        ({voucher?.code})
+                                    </dt>
+                                    <dd className="tabular-nums">
+                                        −
+                                        {formatRupiah(
+                                            goodsDiscount + shippingDiscount,
+                                        )}
+                                    </dd>
+                                </div>
+                            )}
                             {costs.tax_percent > 0 && (
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">
@@ -652,6 +700,18 @@ export default function Checkout({
                             </div>
                         </dl>
 
+                        <div className="mt-4">
+                            <VoucherBox
+                                voucher={voucher}
+                                error={
+                                    form.errors.voucher ??
+                                    (voucherAccepted
+                                        ? voucherProblem
+                                        : undefined)
+                                }
+                            />
+                        </div>
+
                         <Separator className="my-4" />
 
                         <div className="flex items-baseline justify-between gap-4">
@@ -668,6 +728,7 @@ export default function Checkout({
                                 form.processing ||
                                 needsAddress ||
                                 shortLines.length > 0 ||
+                                voucherProblem !== undefined ||
                                 form.data.payment_method_id === null ||
                                 // A delivery with no courier chosen is a
                                 // checkout the server will refuse.

@@ -17,3 +17,4 @@ export type * from './shop';
 export type * from './stock';
 export type * from './ui';
 export type * from './user';
+export type * from './voucher';

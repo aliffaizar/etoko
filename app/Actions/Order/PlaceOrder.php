@@ -4,6 +4,7 @@ namespace App\Actions\Order;
 
 use App\Actions\Shipping\CreateShipment;
 use App\Actions\Shipping\QuoteShipping;
+use App\Actions\Voucher\RedeemVoucher;
 use App\Enums\BranchStatus;
 use App\Enums\FulfillmentType;
 use App\Enums\OrderChannel;
@@ -21,8 +22,12 @@ use App\Models\CourierService;
 use App\Models\Order;
 use App\Models\ProductVariant;
 use App\Models\User;
+use App\Models\Voucher;
 use App\Scopes\BranchScope;
 use App\Services\Pricing\EffectivePriceResolver;
+use App\Services\Pricing\VoucherLine;
+use App\Services\Pricing\VoucherOutcome;
+use App\Services\Pricing\VoucherValidator;
 use App\Services\Shipping\Data\ShippingQuote;
 use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\DocumentNumber;
@@ -57,6 +62,13 @@ use Illuminate\Support\Facades\DB;
  * Prices are resolved **without a branch** (ADR-031): the website has one
  * catalogue and one price list. `branch_product_prices` waits for POS.
  *
+ * A voucher applied on the cart (`carts.voucher_id`) is checked again by
+ * `VoucherValidator` against the priced lines, the chosen fulfilment and the
+ * quoted delivery charge, and refused with a sentence rather than dropped:
+ * the customer agreed to a total with the discount in it. Its unit of quota is
+ * taken by `RedeemVoucher` inside the transaction, under the voucher's row
+ * lock (P2-E5-T3, T4, ADR-064).
+ *
  * Every descriptive and monetary column on the order and its lines is a
  * snapshot taken here (ADR-007). After this runs, editing the catalogue cannot
  * change what anyone was charged.
@@ -69,6 +81,8 @@ final class PlaceOrder
         private readonly TransitionOrderStatus $transitionOrderStatus,
         private readonly QuoteShipping $quoteShipping,
         private readonly CreateShipment $createShipment,
+        private readonly VoucherValidator $voucherValidator,
+        private readonly RedeemVoucher $redeemVoucher,
     ) {}
 
     /**
@@ -108,6 +122,11 @@ final class PlaceOrder
         // answer — the same mistake `InitiatePayment` was built to avoid.
         $quote = $this->quoteDelivery($branch, $address, $fulfillment, $data['courier_service_id'] ?? null, $lines);
 
+        // Outside the transaction for the same reason as the prices: it is a
+        // refusal with a sentence, and it needs the delivery charge, which is
+        // only known once the courier has been quoted.
+        $voucher = $this->checkVoucher($cart, $branch, $customer, $fulfillment, $lines, $quote);
+
         // Taken before the transaction opens (MED-06). `DocumentNumber` runs a
         // transaction of its own, which nested inside this one would be a mere
         // savepoint — the counter's row lock would then be held for the whole
@@ -116,12 +135,19 @@ final class PlaceOrder
         // afterwards costs nothing.
         $orderNumber = DocumentNumber::next(DocumentNumber::PREFIX_ORDER);
 
-        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $orderNumber, $quote): Order {
-            $this->lockCart($cart, count($lines));
+        return DB::transaction(function () use ($cart, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $orderNumber, $quote, $voucher): Order {
+            $this->lockCart($cart, count($lines), $voucher?->voucher);
 
-            $order = $this->createOrder($orderNumber, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $quote);
+            // Claimed before the order row is written: the order's foreign key
+            // to the voucher takes a shared lock on it, and claiming after that
+            // deadlocks simultaneous checkouts (P2-E5-T4, see RedeemVoucher).
+            $claimed = $voucher instanceof VoucherOutcome
+                ? ['voucher' => $this->redeemVoucher->claim($voucher->voucher, $customer), 'discount' => $voucher->totalDiscount()]
+                : null;
 
-            $this->createItems($order, $lines);
+            $order = $this->createOrder($orderNumber, $branch, $customer, $actor, $fulfillment, $address, $lines, $data, $quote, $voucher);
+
+            $this->createItems($order, $lines, $voucher);
 
             // The courier the customer chose, recorded as part of the order:
             // `orders.shipping_cost` and the row that explains where that
@@ -129,6 +155,10 @@ final class PlaceOrder
             // delivery charge nobody can account for.
             if ($quote instanceof ShippingQuote) {
                 $this->createShipment->handle($order, $quote);
+            }
+
+            if ($claimed !== null) {
+                $this->redeemVoucher->record($claimed['voucher'], $order, $customer, $claimed['discount']);
             }
 
             $this->reserveStock->handle(
@@ -142,6 +172,10 @@ final class PlaceOrder
             $this->transitionOrderStatus->recordInitial($order, $actor, 'Pesanan dibuat.');
 
             $cart->items()->delete();
+
+            if ($cart->voucher_id !== null) {
+                $cart->forceFill(['voucher_id' => null])->save();
+            }
 
             return $order;
         });
@@ -169,11 +203,16 @@ final class PlaceOrder
      * that window would otherwise be charged as it was, not as it is. Both
      * refusals roll the transaction back with nothing written.
      *
+     * The voucher is held to the same standard: a voucher removed or swapped
+     * in another tab after the totals were worked out would otherwise be
+     * charged as it was.
+     *
      * @param  int  $pricedLines  How many lines `priceLines()` settled on.
+     * @param  Voucher|null  $pricedVoucher  The voucher the totals were worked out with.
      *
      * @throws CheckoutFailedException
      */
-    private function lockCart(Cart $cart, int $pricedLines): void
+    private function lockCart(Cart $cart, int $pricedLines, ?Voucher $pricedVoucher): void
     {
         $locked = Cart::whereKey($cart->getKey())->lockForUpdate()->first();
 
@@ -184,6 +223,55 @@ final class PlaceOrder
         if ($locked->items()->lockForUpdate()->count() !== $pricedLines) {
             throw CheckoutFailedException::cartAlreadyPlaced();
         }
+
+        if ($locked->voucher_id !== $pricedVoucher?->getKey()) {
+            throw CheckoutFailedException::voucherRejected(
+                'Voucher di keranjang baru saja berubah. Periksa kembali totalnya, lalu buat pesanan lagi.',
+            );
+        }
+    }
+
+    /**
+     * The cart's voucher, checked against the order as it will be written, or
+     * null when the cart has none (P2-E5-T3).
+     *
+     * @param  array<int, array{variant: ProductVariant, quantity: int, unit_price: int, subtotal: int, weight_gram: int}>  $lines
+     *
+     * @throws CheckoutFailedException
+     */
+    private function checkVoucher(
+        Cart $cart,
+        Branch $branch,
+        ?User $customer,
+        FulfillmentType $fulfillment,
+        array $lines,
+        ?ShippingQuote $quote,
+    ): ?VoucherOutcome {
+        if ($cart->voucher_id === null) {
+            return null;
+        }
+
+        $voucher = Voucher::query()->find($cart->voucher_id);
+
+        if (! $voucher instanceof Voucher) {
+            return null;
+        }
+
+        $outcome = $this->voucherValidator->check(
+            $voucher,
+            array_map(fn (array $line): VoucherLine => VoucherLine::fromVariant($line['variant'], $line['subtotal']), $lines),
+            $branch,
+            $customer,
+            OrderChannel::Online,
+            $fulfillment,
+            $this->shippingCostFor($fulfillment, $quote),
+        );
+
+        if (! $outcome->isAccepted()) {
+            throw CheckoutFailedException::voucherRejected((string) $outcome->rejection);
+        }
+
+        return $outcome;
     }
 
     /**
@@ -444,12 +532,15 @@ final class PlaceOrder
         array $lines,
         array $data,
         ?ShippingQuote $quote = null,
+        ?VoucherOutcome $voucher = null,
     ): Order {
         $subtotal = array_sum(array_column($lines, 'subtotal'));
         $weight = self::weightOf($lines);
 
         $shipping = $this->shippingCostFor($fulfillment, $quote);
-        $tax = (int) round($subtotal * self::taxPercent() / 100);
+        $goodsDiscount = $voucher->goodsDiscount ?? 0;
+        $shippingDiscount = $voucher->shippingDiscount ?? 0;
+        $tax = self::taxOn($subtotal - $goodsDiscount);
 
         return Order::create([
             'order_number' => $orderNumber,
@@ -462,11 +553,13 @@ final class PlaceOrder
             ...$this->customerSnapshot($customer, $address),
             ...$this->shippingSnapshot($address),
             'subtotal' => $subtotal,
-            'discount_total' => 0,
+            'discount_total' => $goodsDiscount + $shippingDiscount,
             'shipping_cost' => $shipping,
             'tax_total' => $tax,
-            'grand_total' => $subtotal + $shipping + $tax,
+            'grand_total' => $subtotal - $goodsDiscount + $shipping - $shippingDiscount + $tax,
             'total_weight_gram' => $weight,
+            'voucher_id' => $voucher?->voucher->getKey(),
+            'voucher_code' => $voucher?->voucher->code,
             'customer_note' => $data['customer_note'] ?? null,
             'placed_at' => now(),
             'created_by' => $actor?->getKey(),
@@ -531,11 +624,16 @@ final class PlaceOrder
     /**
      * @param  array<int, array{variant: ProductVariant, quantity: int, unit_price: int, subtotal: int, weight_gram: int}>  $lines
      */
-    private function createItems(Order $order, array $lines): void
+    private function createItems(Order $order, array $lines, ?VoucherOutcome $voucher = null): void
     {
-        foreach ($lines as $line) {
+        foreach ($lines as $key => $line) {
             $variant = $line['variant'];
             $product = $variant->product;
+
+            // The goods discount, shared across the covered lines, so a
+            // returned unit is refunded at what was actually paid for it
+            // (`ReturnItem::unitValue()` reads the line's net subtotal).
+            $discount = $voucher?->lineDiscount($key) ?? 0;
 
             $order->items()->create([
                 'product_id' => $product->getKey(),
@@ -546,8 +644,8 @@ final class PlaceOrder
                 'image_path' => $product->images->first()?->path,
                 'unit_price' => $line['unit_price'],
                 'quantity' => $line['quantity'],
-                'discount_amount' => 0,
-                'subtotal' => $line['subtotal'],
+                'discount_amount' => $discount,
+                'subtotal' => $line['subtotal'] - $discount,
                 'weight_gram' => $line['weight_gram'],
                 'cost_price' => null,
             ]);
@@ -601,5 +699,15 @@ final class PlaceOrder
     public static function taxPercent(): int
     {
         return (int) config('shop.tax_percent', 0);
+    }
+
+    /**
+     * The tax on goods worth `$taxable` — the subtotal **after** the goods
+     * discount, since tax is owed on what the goods were sold for. A free
+     * delivery does not change it: delivery is not taxed here at all.
+     */
+    public static function taxOn(int $taxable): int
+    {
+        return (int) round(max($taxable, 0) * self::taxPercent() / 100);
     }
 }

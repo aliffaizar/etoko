@@ -93,6 +93,8 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, OrderReturn> $returns
  * @property-read Collection<int, Refund> $refunds
  * @property-read Invoice|null $invoice
+ * @property-read Voucher|null $voucher
+ * @property-read VoucherUsage|null $voucherUsage
  */
 #[Fillable([
     'order_number', 'user_id', 'branch_id', 'channel', 'fulfillment_type',
@@ -242,6 +244,25 @@ class Order extends Model
     public function invoice(): HasOne
     {
         return $this->hasOne(Invoice::class);
+    }
+
+    /**
+     * The voucher redeemed on this order, while it still exists
+     * (`voucher_code` is the snapshot that outlives it) (P2-E5-T4).
+     *
+     * @return BelongsTo<Voucher, $this>
+     */
+    public function voucher(): BelongsTo
+    {
+        return $this->belongsTo(Voucher::class);
+    }
+
+    /**
+     * @return HasOne<VoucherUsage, $this>
+     */
+    public function voucherUsage(): HasOne
+    {
+        return $this->hasOne(VoucherUsage::class);
     }
 
     /**

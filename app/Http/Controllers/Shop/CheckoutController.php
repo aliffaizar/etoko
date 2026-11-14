@@ -23,9 +23,11 @@ use App\Services\Branch\StorefrontBranch;
 use App\Services\Cart\CartService;
 use App\Services\Payment\Data\PaymentContext;
 use App\Services\Payment\PaymentMethodEligibility;
+use App\Services\Pricing\VoucherOutcome;
 use App\Services\Shipping\Data\ShippingQuote;
 use App\Services\Shipping\Data\ShippingQuoteRequest;
 use App\Support\PaymentPresenter;
+use App\Support\VoucherPresenter;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -95,9 +97,13 @@ class CheckoutController extends Controller
         $addresses = $this->addressProps($customer);
         $destination = $this->destinationFor($customer, $request->integer('alamat') ?: null, $addresses);
         $shipping = $this->shippingProps($branch, $cart, $destination);
+        $voucher = $this->cartService->voucherOutcome($cart, $branch, $customer);
 
         return Inertia::render('shop/checkout', [
             'cart' => $this->cartProps($cart),
+            // Without a delivery charge: the screen applies a free-shipping
+            // voucher to whichever courier is picked (P2-E5-T3).
+            'voucher' => VoucherPresenter::forBasket($voucher),
             'branch' => $this->branchProps($branch),
             'addresses' => $addresses,
             'costs' => [
@@ -110,7 +116,7 @@ class CheckoutController extends Controller
             // a courier's price depends on where the parcel is going and
             // nothing else on the screen does.
             'shipping' => $shipping,
-            'payment_methods' => $this->paymentMethodProps($branch, $cart, $destination, $shipping),
+            'payment_methods' => $this->paymentMethodProps($branch, $cart, $destination, $shipping, $voucher),
             'reservation_minutes' => (int) config('shop.reservation_minutes'),
         ]);
     }
@@ -138,6 +144,10 @@ class CheckoutController extends Controller
         try {
             $order = $placeOrder->handle($cart, $branch, $customer, $request->toCheckoutData());
         } catch (CheckoutFailedException $refused) {
+            if ($refused->concernsVoucher) {
+                return back()->withErrors(['checkout' => $refused->getMessage(), 'voucher' => $refused->getMessage()]);
+            }
+
             return back()->withErrors([
                 'checkout' => $refused->getMessage(),
                 ...($refused->problems === [] ? [] : ['items' => implode(' ', $refused->problems)]),
@@ -194,6 +204,7 @@ class CheckoutController extends Controller
         $cart = $this->cartService->resolve($customer);
 
         $cart->load([
+            'voucher',
             'items' => fn (HasMany $q) => $q->with([
                 // The whole product row, not a narrowed select: the summary
                 // reads its weight through `effectiveWeightGram()`, and a
@@ -390,10 +401,12 @@ class CheckoutController extends Controller
      * method carries its own `fulfillment_types`.
      *
      * @param  Address|null  $destination  The address the couriers were quoted against.
+     *                                     The cart's voucher comes off the quotation the same way `PlaceOrder`
+     *                                     takes it off the order, so COD is judged against the discounted bill.
      * @param  array<string, mixed>  $shipping  The output of `shippingProps()`.
      * @return array<string, mixed>
      */
-    private function paymentMethodProps(Branch $branch, Cart $cart, ?Address $destination, array $shipping): array
+    private function paymentMethodProps(Branch $branch, Cart $cart, ?Address $destination, array $shipping, ?VoucherOutcome $voucher): array
     {
         $methods = PaymentMethod::query()->active()->ordered()->get();
         $cheapestShipping = $this->cheapestShippingCost($shipping);
@@ -401,7 +414,7 @@ class CheckoutController extends Controller
         $quote = fn (FulfillmentType $type): PaymentContext => new PaymentContext(
             branchId: $branch->getKey(),
             fulfillmentType: $type,
-            amount: $this->quotedTotal($cart, $type, $cheapestShipping),
+            amount: $this->quotedTotal($cart, $type, $cheapestShipping, $voucher),
             cityName: $type === FulfillmentType::Delivery ? $destination?->city_name : null,
             provinceName: $type === FulfillmentType::Delivery ? $destination?->province_name : null,
         );
@@ -453,13 +466,18 @@ class CheckoutController extends Controller
      * disagree about anything except a price that changed in between, which
      * `PlaceOrder` refuses outright.
      */
-    private function quotedTotal(Cart $cart, FulfillmentType $fulfillment, int $shippingCost): int
+    private function quotedTotal(Cart $cart, FulfillmentType $fulfillment, int $shippingCost, ?VoucherOutcome $voucher = null): int
     {
         $subtotal = $cart->subtotal();
         $shipping = $fulfillment->requiresShipping() ? $shippingCost : 0;
-        $tax = (int) round($subtotal * PlaceOrder::taxPercent() / 100);
+        $accepted = $voucher?->isAccepted() === true;
 
-        return $subtotal + $shipping + $tax;
+        $goodsDiscount = $accepted ? $voucher->goodsDiscount : 0;
+        $shippingDiscount = $accepted && $voucher->voucher->type->discountsShipping() && $fulfillment->requiresShipping()
+            ? min($shipping, $voucher->voucher->max_discount ?? $shipping)
+            : 0;
+
+        return $subtotal - $goodsDiscount + $shipping - $shippingDiscount + PlaceOrder::taxOn($subtotal - $goodsDiscount);
     }
 
     /**

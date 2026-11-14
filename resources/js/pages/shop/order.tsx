@@ -310,6 +310,9 @@ export default function OrderPage({
                                     <div className="flex justify-between gap-4">
                                         <dt className="text-muted-foreground">
                                             Diskon
+                                            {order.voucher_code
+                                                ? ` (${order.voucher_code})`
+                                                : ''}
                                         </dt>
                                         <dd className="tabular-nums">
                                             −

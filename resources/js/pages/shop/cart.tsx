@@ -1,6 +1,7 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { Minus, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { VoucherBox } from '@/components/shop/voucher-box';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
@@ -8,6 +9,7 @@ import { formatRupiah } from '@/lib/format';
 import cart from '@/routes/shop/cart';
 import { index as catalogIndex } from '@/routes/shop/catalog';
 import checkout from '@/routes/shop/checkout';
+import type { BasketVoucher } from '@/types';
 
 type CartVariant = {
     id: number;
@@ -38,9 +40,10 @@ type CartData = {
 
 type CartProps = {
     cart: CartData;
+    voucher: BasketVoucher | null;
 };
 
-export default function CartPage({ cart: cartData }: CartProps) {
+export default function CartPage({ cart: cartData, voucher }: CartProps) {
     return (
         <>
             <Head title="Keranjang Belanja" />
@@ -56,7 +59,7 @@ export default function CartPage({ cart: cartData }: CartProps) {
                 ) : (
                     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
                         <CartItems items={cartData.items} />
-                        <CartSummary cart={cartData} />
+                        <CartSummary cart={cartData} voucher={voucher} />
                     </div>
                 )}
             </div>
@@ -226,7 +229,15 @@ function CartItemRow({ item }: { item: CartItemData }) {
     );
 }
 
-function CartSummary({ cart: cartData }: { cart: CartData }) {
+function CartSummary({
+    cart: cartData,
+    voucher,
+}: {
+    cart: CartData;
+    voucher: BasketVoucher | null;
+}) {
+    const discount = voucher?.is_accepted ? voucher.goods_discount : 0;
+
     return (
         <div className="h-fit rounded-lg border p-4">
             <h2 className="mb-4 font-semibold">Ringkasan Belanja</h2>
@@ -239,6 +250,17 @@ function CartSummary({ cart: cartData }: { cart: CartData }) {
                     <span>{formatRupiah(cartData.subtotal)}</span>
                 </div>
 
+                {discount > 0 && (
+                    <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                            Voucher {voucher?.code}
+                        </span>
+                        <span className="tabular-nums">
+                            −{formatRupiah(discount)}
+                        </span>
+                    </div>
+                )}
+
                 {cartData.branch && (
                     <div className="flex justify-between">
                         <span className="text-muted-foreground">Cabang</span>
@@ -247,18 +269,24 @@ function CartSummary({ cart: cartData }: { cart: CartData }) {
                 )}
             </div>
 
+            <div className="mt-4">
+                <VoucherBox voucher={voucher} />
+            </div>
+
             <Separator className="my-4" />
 
             <div className="flex justify-between font-semibold">
                 <span>Total</span>
-                <span>{formatRupiah(cartData.subtotal)}</span>
+                <span>{formatRupiah(cartData.subtotal - discount)}</span>
             </div>
 
             <Button className="mt-4 w-full" asChild>
                 <Link href={checkout.index().url}>Lanjut ke Checkout</Link>
             </Button>
             <p className="mt-2 text-center text-xs text-muted-foreground">
-                Ongkos kirim dihitung di halaman checkout.
+                {voucher?.is_accepted && voucher.discounts_shipping
+                    ? 'Potongan ongkos kirim dihitung di halaman checkout.'
+                    : 'Ongkos kirim dihitung di halaman checkout.'}
             </p>
         </div>
     );

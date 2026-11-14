@@ -12,6 +12,7 @@ use App\Models\ProductVariant;
 use App\Models\Stock;
 use App\Services\Branch\StorefrontBranch;
 use App\Services\Cart\CartService;
+use App\Support\VoucherPresenter;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -49,11 +50,12 @@ class CartController extends Controller
 
         $cart->load([
             'branch:id,name',
+            'voucher',
             'items' => fn (HasMany $q) => $q->with([
                 'variant' => fn ($q) => $q->withoutGlobalScopes()
                     ->with([
                         'product' => fn ($q) => $q
-                            ->select('id', 'name', 'slug', 'base_price')
+                            ->select('id', 'category_id', 'name', 'slug', 'base_price')
                             ->with(['images' => fn ($q) => $q->where('is_primary', true)->limit(1)]),
                         'stocks' => fn (HasMany $q) => $q->when(
                             $branch,
@@ -65,6 +67,12 @@ class CartController extends Controller
 
         return Inertia::render('shop/cart', [
             'cart' => $this->cartProps($cart, $branch),
+            // Re-checked on every visit, so a voucher that stopped applying
+            // (the basket shrank below its minimum, its period ended) says so
+            // here rather than at the checkout button (P2-E5-T3).
+            'voucher' => VoucherPresenter::forBasket(
+                $this->cartService->voucherOutcome($cart, $branch, $user),
+            ),
         ]);
     }
 

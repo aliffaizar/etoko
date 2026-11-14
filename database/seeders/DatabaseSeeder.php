@@ -23,8 +23,8 @@ class DatabaseSeeder extends Seeder
      * RolePermissionSeeder, PaymentMethodSeeder and CourierSeeder are
      * reference data every environment needs — a shop with no payment methods
      * has a checkout that cannot be completed, and one with no courier has a
-     * delivery option that cannot — so all three run unconditionally. The four
-     * demo seeders are sample content and are skipped in production.
+     * delivery option that cannot — so all three run unconditionally. The demo
+     * seeders are sample content and are skipped in production.
      *
      * The order matters and is a chain of dependencies, not a preference:
      * inventory is received against variants, so the catalogue has to exist
@@ -43,6 +43,7 @@ class DatabaseSeeder extends Seeder
             $this->call(InventoryDemoSeeder::class);
             $this->call(OrderDemoSeeder::class);
             $this->call(StockTransferDemoSeeder::class);
+            $this->call(VoucherDemoSeeder::class);
         }
     }
 }

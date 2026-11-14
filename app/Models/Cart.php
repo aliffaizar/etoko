@@ -30,15 +30,17 @@ use Illuminate\Support\Carbon;
  * @property int|null $user_id
  * @property string|null $session_token
  * @property int|null $branch_id
+ * @property int|null $voucher_id
  * @property FulfillmentType|null $fulfillment_type
  * @property Carbon|null $expires_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read User|null $user
  * @property-read Branch|null $branch
+ * @property-read Voucher|null $voucher
  * @property-read Collection<int, CartItem> $items
  */
-#[Fillable(['user_id', 'session_token', 'branch_id', 'fulfillment_type', 'expires_at'])]
+#[Fillable(['user_id', 'session_token', 'branch_id', 'voucher_id', 'fulfillment_type', 'expires_at'])]
 class Cart extends Model
 {
     /** @use HasFactory<CartFactory> */
@@ -66,6 +68,17 @@ class Cart extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * The voucher applied on the cart screen (P2-E5-T3). Re-checked by
+     * `PlaceOrder`; holding it here promises nothing.
+     *
+     * @return BelongsTo<Voucher, $this>
+     */
+    public function voucher(): BelongsTo
+    {
+        return $this->belongsTo(Voucher::class);
     }
 
     /**
