@@ -11,10 +11,12 @@ use App\Models\ProductAttribute;
 use App\Models\ProductAttributeValue;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\Review;
 use App\Models\User;
 use App\Services\Branch\StorefrontBranch;
 use App\Services\Pricing\EffectivePriceResolver;
 use App\Services\Pricing\ResolvedPrice;
+use App\Support\ReviewPresenter;
 use App\Support\StorefrontCatalogQuery;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -63,7 +65,39 @@ class ProductController extends Controller
             'breadcrumbs' => $this->categoryTrail($product),
             'branch_availability' => $this->availabilityProps($product),
             'is_wishlisted' => $isWishlisted,
+            'reviews' => $this->reviewProps($product),
         ]);
+    }
+
+    /**
+     * The product's approved reviews and its rating (P2-E8-T3).
+     *
+     * Only what is on show is read here: `approved()` is the one gate, and the
+     * rating figures on the product are kept to the same set by
+     * `RefreshProductRating`.
+     *
+     * @return array{summary: array{average: float, count: int}, items: array<int, array<string, mixed>>}
+     */
+    private function reviewProps(Product $product): array
+    {
+        $reviews = Review::query()
+            ->approved()
+            ->where('product_id', $product->getKey())
+            ->with(['user:id,name', 'images'])
+            ->latest('id')
+            ->limit(10)
+            ->get();
+
+        return [
+            'summary' => [
+                'average' => (float) $product->rating_avg,
+                'count' => (int) $product->rating_count,
+            ],
+            'items' => $reviews
+                ->map(fn (Review $review): array => ReviewPresenter::publicRow($review))
+                ->values()
+                ->all(),
+        ];
     }
 
     /**

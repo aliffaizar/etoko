@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Actions\Product\RefreshLowestPrice;
 use App\Models\ProductVariant;
 
 /**
@@ -20,12 +21,39 @@ use App\Models\ProductVariant;
  */
 class ProductVariantObserver
 {
+    public function __construct(private readonly RefreshLowestPrice $refreshLowestPrice) {}
+
     public function saving(ProductVariant $variant): void
     {
         $variant->sku = mb_strtoupper(trim($variant->sku));
 
         $variant->barcode = $this->nullIfBlank($variant->barcode);
         $variant->name = $this->nullIfBlank($variant->name);
+    }
+
+    /**
+     * A variant that is priced, switched on or off, or removed can change which
+     * price is the product's cheapest, so the catalogue figure is refreshed
+     * whenever one is written (ADR-066).
+     */
+    public function saved(ProductVariant $variant): void
+    {
+        $this->refreshLowestPrice->handle($variant->product_id);
+    }
+
+    public function deleted(ProductVariant $variant): void
+    {
+        $this->refreshLowestPrice->handle($variant->product_id);
+    }
+
+    public function restored(ProductVariant $variant): void
+    {
+        $this->refreshLowestPrice->handle($variant->product_id);
+    }
+
+    public function forceDeleted(ProductVariant $variant): void
+    {
+        $this->refreshLowestPrice->handle($variant->product_id);
     }
 
     private function nullIfBlank(?string $value): ?string

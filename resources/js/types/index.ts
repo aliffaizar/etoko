@@ -13,6 +13,7 @@ export type * from './product-attribute';
 export type * from './product-image';
 export type * from './product-variant';
 export type * from './return';
+export type * from './marketing';
 export type * from './shop';
 export type * from './stock';
 export type * from './ui';

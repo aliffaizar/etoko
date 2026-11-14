@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -70,7 +71,7 @@ use Illuminate\Support\Carbon;
     'category_id', 'name', 'slug', 'type', 'short_description', 'description',
     'base_price', 'compare_at_price', 'cost_price',
     'weight_gram', 'length_cm', 'width_cm', 'height_cm',
-    'is_active', 'is_featured', 'published_at', 'meta_title', 'meta_description',
+    'is_active', 'is_featured', 'featured_position', 'published_at', 'meta_title', 'meta_description',
 ])]
 class Product extends Model
 {
@@ -264,5 +265,16 @@ class Product extends Model
     protected function featured(Builder $query): Builder
     {
         return $query->where('is_featured', true);
+    }
+
+    /**
+     * The promotions that name this product (P2-E8-T2). Whether each one is in
+     * force, and at which branch, is the resolver's question, not the relation's.
+     *
+     * @return BelongsToMany<Promotion, $this>
+     */
+    public function promotions(): BelongsToMany
+    {
+        return $this->belongsToMany(Promotion::class, 'promotion_products');
     }
 }

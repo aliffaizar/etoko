@@ -9,6 +9,10 @@ import {
     PackageMinus,
     PackagePlus,
     Palette,
+    Images,
+    Percent,
+    MessageSquare,
+    Star,
     ShieldCheck,
     ShoppingCart,
     Store,
@@ -35,6 +39,10 @@ import { index as returnsIndex } from '@/routes/admin/returns';
 import { index as rolesIndex } from '@/routes/admin/roles';
 import { index as usersIndex } from '@/routes/admin/users';
 import { index as vouchersIndex } from '@/routes/admin/vouchers';
+import { index as promotionsIndex } from '@/routes/admin/promotions';
+import { index as bannersIndex } from '@/routes/admin/banners';
+import { index as reviewsIndex } from '@/routes/admin/reviews';
+import { index as featuredProductsIndex } from '@/routes/admin/featured-products';
 import stockEntries from '@/routes/branch/stock-entries';
 import stockIssues from '@/routes/branch/stock-issues';
 import stockOpnames from '@/routes/branch/stock-opnames';
@@ -186,6 +194,30 @@ const navGroups: PanelNavGroup[] = [
                 href: vouchersIndex(),
                 icon: TicketPercent,
                 permission: 'vouchers.manage',
+            },
+            {
+                title: 'Promo Produk',
+                href: promotionsIndex(),
+                icon: Percent,
+                permission: 'promotions.manage',
+            },
+            {
+                title: 'Banner',
+                href: bannersIndex(),
+                icon: Images,
+                permission: 'banners.manage',
+            },
+            {
+                title: 'Produk Unggulan',
+                href: featuredProductsIndex(),
+                icon: Star,
+                permission: 'products.update',
+            },
+            {
+                title: 'Ulasan',
+                href: reviewsIndex(),
+                icon: MessageSquare,
+                permission: 'reviews.moderate',
             },
         ],
     },

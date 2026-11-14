@@ -48,4 +48,14 @@ class ProductPolicy
     {
         return $user->can('products.delete') && $user->isCentral();
     }
+
+    /**
+     * Which products are featured on the storefront's front page is catalogue
+     * work, so it is central, like every other write to the catalogue (BR-1).
+     * Takes no product: the list is the whole decision.
+     */
+    public function manageFeatured(User $user): bool
+    {
+        return $user->can('products.update') && $user->isCentral();
+    }
 }

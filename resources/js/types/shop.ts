@@ -91,11 +91,14 @@ export type ShopProductCard = {
 };
 
 /** A promotional slide on the front page; static until Phase 2 (`banners.manage`). */
+/** A live homepage banner (P2-E8-T1). */
 export type ShopBanner = {
+    id: number;
     title: string;
-    subtitle: string;
-    cta_label: string;
-    tone: 'primary' | 'accent' | 'muted';
+    subtitle: string | null;
+    image_url: string | null;
+    mobile_image_url: string | null;
+    link_url: string | null;
 };
 
 /** A top-level category as the front page shows it. */
@@ -207,4 +210,31 @@ export type ShopProductAvailability = {
     is_sold_at_branch: boolean;
     variant_count: number;
     in_stock_variant_count: number;
+};
+
+/** A customer's review as the storefront shows it (P2-E8-T3). */
+export type ShopReview = {
+    id: number;
+    rating: number;
+    title: string | null;
+    comment: string | null;
+    author: string;
+    verified: boolean;
+    created_at: string;
+    images: string[];
+    reply: { text: string; replied_at: string } | null;
+};
+
+/** The product page's reviews: the rating summary and the latest on show. */
+export type ShopReviews = {
+    summary: { average: number; count: number };
+    items: ShopReview[];
+};
+
+/** A review the signed-in customer has written for one order line. */
+export type CustomerReviewState = {
+    id: number;
+    rating: number;
+    status: 'pending' | 'approved' | 'rejected';
+    status_label: string;
 };

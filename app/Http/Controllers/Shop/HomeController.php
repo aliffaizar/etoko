@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Shop;
 
+use App\Enums\BannerPosition;
 use App\Http\Controllers\Controller;
+use App\Models\Banner;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
 use App\Services\Branch\StorefrontBranch;
+use App\Support\BannerPresenter;
 use App\Support\ProductCardPresenter;
 use App\Support\StorefrontCatalogQuery;
 use Illuminate\Database\Eloquent\Collection;
@@ -28,14 +31,14 @@ use Inertia\Response;
 class HomeController extends Controller
 {
     /** How many products each rail shows. */
-    private const RAIL_SIZE = 8;
+    public const RAIL_SIZE = 8;
 
     public function __invoke(StorefrontBranch $storefront, ProductCardPresenter $cards): Response
     {
         $branch = $storefront->currentOrFail();
 
         return Inertia::render('shop/home', [
-            'banners' => $this->banners(),
+            'banners' => $this->banners($branch),
             'categories' => $this->featuredCategories(),
             'featured_products' => $cards->cards($this->featuredProducts($branch)),
             'latest_products' => Inertia::defer(
@@ -45,38 +48,26 @@ class HomeController extends Controller
     }
 
     /**
-     * The promotional slides.
+     * The promotional slides on the homepage (P2-E8-T1).
      *
-     * Static for now, by design: banners are managed content behind
-     * `banners.manage` and arrive with the marketing epic in Phase 2
-     * (docs/01-overview.md §G). Keeping them here, in the shape the page
-     * already reads, means that epic replaces one method with a query rather
-     * than rebuilding the component.
+     * Live banners for this branch, in the order staff set. A banner for another
+     * branch is not shown here even though the catalogue is company-wide: it was
+     * made for that branch's shoppers.
      *
-     * @return array<int, array{title: string, subtitle: string, cta_label: string, tone: string}>
+     * @return array<int, array{id: int, title: string, subtitle: string|null, image_url: string|null, mobile_image_url: string|null, link_url: string|null}>
      */
-    private function banners(): array
+    private function banners(Branch $branch): array
     {
-        return [
-            [
-                'title' => 'Satu katalog, satu harga',
-                'subtitle' => 'Semua produk tersedia di seluruh cabang dengan harga yang sama.',
-                'cta_label' => 'Lihat katalog',
-                'tone' => 'primary',
-            ],
-            [
-                'title' => 'Ambil sendiri di cabang',
-                'subtitle' => 'Pesan online, ambil hari yang sama di cabang yang mendukung pickup.',
-                'cta_label' => 'Mulai belanja',
-                'tone' => 'accent',
-            ],
-            [
-                'title' => 'Stok nyata, bukan perkiraan',
-                'subtitle' => 'Pilih cabang untuk melihat apa yang bisa kamu bawa pulang hari ini.',
-                'cta_label' => 'Telusuri produk',
-                'tone' => 'muted',
-            ],
-        ];
+        return Banner::query()
+            ->live()
+            ->forBranch($branch)
+            ->where('position', BannerPosition::Hero)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Banner $banner): array => BannerPresenter::slide($banner))
+            ->values()
+            ->all();
     }
 
     /**
@@ -120,12 +111,16 @@ class HomeController extends Controller
      */
     private function featuredProducts(Branch $stockBranch): Collection
     {
+        // Placed products first, in the order the catalogue manager set; a
+        // product featured but not yet placed follows, newest first.
         return ProductCardPresenter::withCardRelations(
             StorefrontCatalogQuery::offered()->featured(),
             $stockBranch,
         )
-            ->orderByDesc('published_at')
-            ->orderBy('id')
+            ->orderByRaw('products.featured_position IS NULL')
+            ->orderBy('products.featured_position')
+            ->orderByDesc('products.published_at')
+            ->orderBy('products.id')
             ->limit(self::RAIL_SIZE)
             ->get();
     }

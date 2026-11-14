@@ -2,6 +2,7 @@
 
 use App\Jobs\ExpireStockReservations;
 use App\Jobs\ReconcileOpenPayments;
+use App\Jobs\SyncPromotionPrices;
 use App\Jobs\SyncShipmentTracking;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -58,3 +59,15 @@ Schedule::job(new SyncShipmentTracking)
     ->everyTenMinutes()
     ->withoutOverlapping()
     ->name('sync-shipment-tracking');
+
+/*
+ * Every five minutes, because a promotion's price changes at its boundaries
+ * with nobody touching the product (P2-E8-T2, ADR-066). Five minutes is the
+ * most a storefront price can be stale about a promotion that has just begun or
+ * ended; `SyncPromotionPrices` looks ten minutes either side so no boundary
+ * falls between two runs.
+ */
+Schedule::job(new SyncPromotionPrices)
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->name('sync-promotion-prices');

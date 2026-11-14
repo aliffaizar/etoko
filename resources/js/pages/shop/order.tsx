@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { OrderTimeline } from '@/components/order-timeline';
 import { awaitsGateway, PaymentPanel } from '@/components/shop/payment-panel';
 import { ReturnPanel } from '@/components/shop/return-panel';
+import { ReviewLine } from '@/components/shop/review-line';
 import { ShipmentPanel } from '@/components/shop/shipment-panel';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -31,6 +32,7 @@ import { Separator } from '@/components/ui/separator';
 import { formatDateTime, formatRupiah, formatWeight } from '@/lib/format';
 import account from '@/routes/shop/account';
 import { ORDER_STATUS_TONE, PAYMENT_STATUS_TONE } from '@/types/order';
+import type { CustomerReviewState } from '@/types';
 import type { OrderDetail, OrderInvoice } from '@/types/order';
 import type { CustomerPayment, PaymentMethodChoice } from '@/types/payment';
 import type { CustomerRefund, CustomerReturn } from '@/types/return';
@@ -42,6 +44,10 @@ type OrderProps = {
     payment_blocked_reason: string | null;
     /** Why goods may not be sent back yet, for the panel to say so. */
     return_blocked_reason: string | null;
+    /** The customer's reviews of this order's lines, keyed by line id (P2-E8-T3). */
+    reviews: Record<number, CustomerReviewState>;
+    /** Whether the goods have arrived, so a line may be reviewed. */
+    can_review: boolean;
     /** The attempt in progress, or the one that most recently failed. */
     payment: CustomerPayment | null;
     payment_history: CustomerPayment[];
@@ -73,6 +79,8 @@ export default function OrderPage({
     cancel_blocked_reason: cancelBlockedReason,
     payment_blocked_reason: paymentBlockedReason,
     return_blocked_reason: returnBlockedReason,
+    reviews,
+    can_review: canReview,
     payment,
     payment_history: paymentHistory,
     payment_methods: paymentMethods,
@@ -286,6 +294,14 @@ export default function OrderPage({
                                                 {item.quantity} ×{' '}
                                                 {formatRupiah(item.unit_price)}
                                             </p>
+                                            <ReviewLine
+                                                orderId={order.id}
+                                                itemId={item.id}
+                                                review={
+                                                    reviews[item.id] ?? null
+                                                }
+                                                canReview={canReview}
+                                            />
                                         </div>
 
                                         <p className="shrink-0 text-sm font-medium tabular-nums">

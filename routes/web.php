@@ -14,6 +14,7 @@ use App\Http\Controllers\Shop\PaymentController;
 use App\Http\Controllers\Shop\PaymentReturnController;
 use App\Http\Controllers\Shop\ProductController;
 use App\Http\Controllers\Shop\ReturnController;
+use App\Http\Controllers\Shop\ReviewController;
 use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
 use Illuminate\Support\Facades\Route;
@@ -231,6 +232,17 @@ Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function 
 
             Route::post('{order}/retur/{return}/batal', [ReturnController::class, 'cancel'])
                 ->name('returns.cancel');
+
+            /*
+             * A review of one line the customer received (P2-E8-T3, ADR-068).
+             *
+             * Under the order, and the line is checked to belong to it, so the
+             * customer's authorisation is the order as with returns. Throttled
+             * because each call writes a row and up to five uploaded photos.
+             */
+            Route::post('{order}/item/{item}/ulasan', [ReviewController::class, 'store'])
+                ->middleware('throttle:10,1')
+                ->name('reviews.store');
         });
     });
 });

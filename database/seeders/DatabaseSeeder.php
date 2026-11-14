@@ -44,6 +44,7 @@ class DatabaseSeeder extends Seeder
             $this->call(OrderDemoSeeder::class);
             $this->call(StockTransferDemoSeeder::class);
             $this->call(VoucherDemoSeeder::class);
+            $this->call(BannerDemoSeeder::class);
         }
     }
 }

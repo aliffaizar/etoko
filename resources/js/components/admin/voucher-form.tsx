@@ -446,7 +446,7 @@ export function VoucherForm({
  * A checkbox list that submits the ticked ids as `name[]`, optionally with a
  * filter box for long lists such as products.
  */
-function PickList({
+export function PickList({
     name,
     label,
     options,

@@ -144,3 +144,14 @@ it('refuses to open the shop when no branch can sell', function () {
 
     $this->get(route('home'))->assertStatus(503);
 });
+
+it('orders the featured rail by the position set in the admin (P2-E8-T4)', function () {
+    $second = Product::factory()->withDefaultVariant()->featured()->create(['featured_position' => 2]);
+    $first = Product::factory()->withDefaultVariant()->featured()->create(['featured_position' => 1]);
+
+    $this->get(route('home'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('featured_products.0.id', $first->getKey())
+            ->where('featured_products.1.id', $second->getKey()));
+});

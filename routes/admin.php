@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\BannerController;
 use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\BranchOperatingHourController;
 use App\Http\Controllers\Admin\BranchProductController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Admin\BranchWarehouseController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\FeaturedProductController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PaymentController;
@@ -18,8 +20,10 @@ use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductImageController;
 use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\ProductVariantController;
+use App\Http\Controllers\Admin\PromotionController;
 use App\Http\Controllers\Admin\RefundController;
 use App\Http\Controllers\Admin\ReturnController;
+use App\Http\Controllers\Admin\ReviewController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
@@ -350,6 +354,66 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::put('{voucher}', [VoucherController::class, 'update'])->name('update');
             Route::patch('{voucher}/status', [VoucherController::class, 'updateStatus'])->name('status.update');
             Route::delete('{voucher}', [VoucherController::class, 'destroy'])->name('destroy');
+        });
+
+        /*
+         * Product promotions (P2-E8-T2, ADR-067). Central only, like vouchers:
+         * every route needs `promotions.manage` and `PromotionPolicy` demands a
+         * central actor, so the permission granted on the Role screen to a
+         * branch role opens nothing. Switched off rather than deleted, so there
+         * is no delete route.
+         */
+        Route::prefix('promotions')->name('promotions.')->middleware('can:promotions.manage')->group(function () {
+            Route::get('/', [PromotionController::class, 'index'])->name('index');
+            Route::get('create', [PromotionController::class, 'create'])->name('create');
+            Route::post('/', [PromotionController::class, 'store'])->name('store');
+            Route::get('{promotion}/edit', [PromotionController::class, 'edit'])->name('edit');
+            Route::put('{promotion}', [PromotionController::class, 'update'])->name('update');
+            Route::patch('{promotion}/status', [PromotionController::class, 'updateStatus'])->name('status.update');
+        });
+
+        /*
+         * Homepage banners (P2-E8-T1). Central only, like vouchers.
+         *
+         * Update is a POST rather than a PUT because the form may carry image
+         * files, and PHP does not read multipart bodies on PUT.
+         */
+        Route::prefix('banners')->name('banners.')->middleware('can:banners.manage')->group(function () {
+            Route::get('/', [BannerController::class, 'index'])->name('index');
+            Route::get('create', [BannerController::class, 'create'])->name('create');
+            Route::post('/', [BannerController::class, 'store'])->name('store');
+            Route::get('{banner}/edit', [BannerController::class, 'edit'])->name('edit');
+            Route::post('{banner}', [BannerController::class, 'update'])->name('update');
+            Route::patch('{banner}/status', [BannerController::class, 'updateStatus'])->name('status.update');
+            Route::delete('{banner}', [BannerController::class, 'destroy'])->name('destroy');
+        });
+
+        /*
+         * Featured products on the front page (P2-E8-T4). Catalogue work, so
+         * it sits under `products.update` and `ProductPolicy::manageFeatured`
+         * keeps it central (BR-1). The whole list is saved at once.
+         */
+        Route::prefix('featured-products')->name('featured-products.')->group(function () {
+            Route::get('/', [FeaturedProductController::class, 'index'])
+                ->middleware('can:products.view')
+                ->name('index');
+
+            Route::put('/', [FeaturedProductController::class, 'update'])
+                ->middleware('can:products.update')
+                ->name('update');
+        });
+
+        /*
+         * Customer reviews (P2-E8-T3, ADR-068). Moderation is central; a branch
+         * admin holds `reviews.moderate` too and may answer the reviews of
+         * their own branch. `ReviewPolicy` and the `BelongsToBranch` scope are
+         * what keep the two apart, not the route.
+         */
+        Route::prefix('reviews')->name('reviews.')->middleware('can:reviews.moderate')->group(function () {
+            Route::get('/', [ReviewController::class, 'index'])->name('index');
+            Route::post('{review}/approve', [ReviewController::class, 'approve'])->name('approve');
+            Route::post('{review}/reject', [ReviewController::class, 'reject'])->name('reject');
+            Route::post('{review}/balas', [ReviewController::class, 'reply'])->name('reply');
         });
 
         /*

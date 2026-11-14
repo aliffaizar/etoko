@@ -5,9 +5,7 @@ namespace App\Support;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
-use App\Services\Pricing\CatalogPriceQuery;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 
@@ -42,7 +40,8 @@ use Illuminate\Support\Facades\DB;
  * The homepage rails and the catalogue page both start here, so a product
  * hidden from one is hidden from the other.
  *
- * Price is read through `CatalogPriceQuery` with **no branch**, which is what
+ * Price is read from `products.lowest_price` (ADR-066), which is written from
+ * `EffectivePriceResolver` with **no branch**, which is what
  * makes the sort agree with the price on the card (ADR-029, ADR-031); stock is
  * read as what the branch's warehouses can still sell,
  * `quantity - reserved_quantity` (BR-6).
@@ -136,13 +135,10 @@ final class StorefrontCatalogQuery
     public static function ordered(Branch $stockBranch, array $filters): Builder
     {
         $query = self::filtered($stockBranch, $filters);
-        // No branch: the storefront charges the catalogue price, so the order
-        // has to be the catalogue's too (ADR-031).
-        $price = CatalogPriceQuery::lowestPrice(null);
 
         return match ($filters['sort']) {
-            'cheapest' => self::orderByPrice($query, $price, 'asc'),
-            'priciest' => self::orderByPrice($query, $price, 'desc'),
+            'cheapest' => self::orderByPrice($query, 'asc'),
+            'priciest' => self::orderByPrice($query, 'desc'),
             'bestselling' => $query->orderByDesc('products.sold_count')->orderBy('products.id'),
             default => $query->orderByDesc('products.published_at')->orderBy('products.id'),
         };
@@ -206,28 +202,22 @@ final class StorefrontCatalogQuery
 
     /**
      * Narrows by the catalogue price — the price every branch charges
-     * (ADR-031).
+     * (ADR-031), read from `products.lowest_price` (ADR-066).
      *
-     * Phrased as `EXISTS` / `NOT EXISTS` over the product's options rather than
-     * by comparing a scalar subquery, which is the same question in a shape the
-     * query builder will take — see `CatalogPriceQuery::variantsPriced()`.
+     * A product's lowest price is inside the range exactly when its cheapest
+     * option is, so one comparison on the stored column answers what the old
+     * `EXISTS` pair did, and the index on that column serves it.
      *
      * @param  Builder<Product>  $query
      */
     private static function applyPriceRange(Builder $query, string $min, string $max): void
     {
         if ($min !== '') {
-            // The cheapest option is at least the minimum, i.e. no option is
-            // below it.
-            $query->whereNotExists(
-                CatalogPriceQuery::variantsPriced(null, '<', (int) $min),
-            );
+            $query->where('products.lowest_price', '>=', (int) $min);
         }
 
         if ($max !== '') {
-            $query->whereExists(
-                CatalogPriceQuery::variantsPriced(null, '<=', (int) $max),
-            );
+            $query->where('products.lowest_price', '<=', (int) $max);
         }
     }
 
@@ -260,8 +250,8 @@ final class StorefrontCatalogQuery
      * @param  'asc'|'desc'  $direction
      * @return Builder<Product>
      */
-    private static function orderByPrice(Builder $query, QueryBuilder $price, string $direction): Builder
+    private static function orderByPrice(Builder $query, string $direction): Builder
     {
-        return $query->orderBy($price, $direction)->orderBy('products.id');
+        return $query->orderBy('products.lowest_price', $direction)->orderBy('products.id');
     }
 }

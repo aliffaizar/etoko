@@ -3,7 +3,6 @@ import {
     Heart,
     Info,
     MapPin,
-    MessageSquare,
     PackageCheck,
     ShoppingCart,
     Star,
@@ -12,6 +11,7 @@ import {
 import { useState } from 'react';
 import { PriceTag } from '@/components/shop/price-tag';
 import { ProductGallery } from '@/components/shop/product-gallery';
+import { ProductReviews } from '@/components/shop/product-reviews';
 import { ShopEmpty } from '@/components/shop/shop-empty';
 import { StockBadge } from '@/components/shop/stock-badge';
 import {
@@ -33,6 +33,7 @@ import type {
     ShopProductDetail,
     ShopProductImage,
     ShopProductVariant,
+    ShopReviews,
 } from '@/types';
 
 type Props = {
@@ -43,6 +44,7 @@ type Props = {
     breadcrumbs: Array<{ name: string; slug: string }>;
     branch_availability: ShopProductAvailability;
     is_wishlisted: boolean;
+    reviews: ShopReviews;
 };
 
 type DetailTab = 'description' | 'specification' | 'reviews';
@@ -71,6 +73,7 @@ export default function ShopProduct({
     breadcrumbs,
     branch_availability: availability,
     is_wishlisted: initialWishlisted,
+    reviews,
 }: Props) {
     const shop = usePage().props.shop as ShopContext | undefined;
     const branch = shop?.branch ?? null;
@@ -232,7 +235,7 @@ export default function ShopProduct({
                             selected={selected}
                         />
                     )}
-                    {tab === 'reviews' && <ReviewsPanel />}
+                    {tab === 'reviews' && <ProductReviews reviews={reviews} />}
                 </section>
             </div>
         </>
@@ -541,24 +544,6 @@ function SpecificationPanel({
                 </div>
             ))}
         </dl>
-    );
-}
-
-/**
- * The reviews tab.
- *
- * Empty by design: reviews are their own table and their own moderation flow
- * in Phase 2 (`reviews.moderate`). The tab exists now because the product page
- * is where a shopper looks for them, and an absent tab reads as "this shop has
- * no reviews at all" (docs/05-roadmap.md P1-E5-T6).
- */
-function ReviewsPanel() {
-    return (
-        <ShopEmpty
-            icon={MessageSquare}
-            title="Ulasan belum tersedia"
-            description="Ulasan pelanggan akan muncul di sini setelah fitur ulasan aktif."
-        />
     );
 }
 

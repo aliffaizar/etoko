@@ -16,6 +16,7 @@ use App\Models\Category;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Promotion;
 use App\Models\Stock;
 use App\Models\StockReservation;
 use App\Models\User;
@@ -498,4 +499,22 @@ describe('telling the customer (P2-E6-T3)', function () {
 
         expect($placed->shouldSend($this->customer, 'mail'))->toBeFalse();
     });
+});
+
+it('charges each line its promotion price (P2-E8-T2, ADR-067)', function () {
+    $promoted = checkoutVariant(10, 100_000);
+    $ordinary = checkoutVariant(10, 50_000);
+    $promotion = Promotion::factory()->percentage(20)->create();
+    $promotion->products()->attach($promoted->product_id);
+
+    $cart = cartWith($promoted, 1, snapshot: 100_000);
+    CartItem::factory()->forCart($cart)->forVariant($ordinary)->create([
+        'quantity' => 1,
+        'unit_price_snapshot' => 50_000,
+    ]);
+
+    $order = placeOrder()->handle($cart, $this->branch, $this->customer, deliveryData());
+
+    expect($order->items->firstWhere('product_variant_id', $promoted->getKey())->unit_price)->toBe(80_000)
+        ->and($order->items->firstWhere('product_variant_id', $ordinary->getKey())->unit_price)->toBe(50_000);
 });

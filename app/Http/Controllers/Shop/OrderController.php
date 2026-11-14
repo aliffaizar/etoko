@@ -13,6 +13,7 @@ use App\Models\OrderReturn;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Refund;
+use App\Models\Review;
 use App\Models\Shipment;
 use App\Models\User;
 use App\Services\Payment\Data\PaymentContext;
@@ -124,6 +125,10 @@ class OrderController extends Controller
             'cancel_blocked_reason' => $order->cancellationBlockedReason(asCustomer: true),
             'payment_blocked_reason' => $order->paymentBlockedReason(),
             'return_blocked_reason' => $order->returnBlockedReason(),
+            // Reviews of this order's lines (P2-E8-T3): what each line's review
+            // stands at, and whether the lines can be reviewed at all yet.
+            'reviews' => $this->reviewsByItem($order, $customer),
+            'can_review' => in_array($order->status, [OrderStatus::Delivered, OrderStatus::Completed], strict: true),
             // The attempt in progress, shown as instructions; and the rest as
             // history, so a customer can see the virtual account that lapsed
             // before the transfer they made instead.
@@ -247,5 +252,27 @@ class OrderController extends Controller
             ->paginate(self::PER_PAGE)
             ->withQueryString()
             ->through(fn (Order $order): array => OrderPresenter::row($order));
+    }
+
+    /**
+     * Each of the order's lines that has a review, keyed by line id.
+     *
+     * @return array<int, array{id: int, rating: int, status: string, status_label: string}>
+     */
+    private function reviewsByItem(Order $order, User $customer): array
+    {
+        return Review::query()
+            ->where('user_id', $customer->getKey())
+            ->whereIn('order_item_id', $order->items->modelKeys())
+            ->get()
+            ->mapWithKeys(fn (Review $review): array => [
+                (int) $review->order_item_id => [
+                    'id' => $review->getKey(),
+                    'rating' => $review->rating,
+                    'status' => $review->status->value,
+                    'status_label' => $review->status->label(),
+                ],
+            ])
+            ->all();
     }
 }

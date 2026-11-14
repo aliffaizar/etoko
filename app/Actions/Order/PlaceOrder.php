@@ -415,6 +415,14 @@ final class PlaceOrder
 
         $notStocked = $this->productsNotStockedAt($branch, $items);
 
+        // One resolver pass for the whole cart: promotions are read once
+        // rather than once per line, inside the transaction that holds the
+        // cart lock (ADR-067).
+        $prices = $this->priceResolver->forMany(
+            new Collection($items->map(fn (CartItem $item): ProductVariant => $item->variant)->values()->all()),
+            null,
+        );
+
         foreach ($items as $item) {
             $variant = $item->variant;
 
@@ -424,7 +432,7 @@ final class PlaceOrder
                 continue;
             }
 
-            $price = $this->priceResolver->for($variant, null)->amount;
+            $price = $prices[$variant->getKey()]->amount;
 
             if ($price > $item->unit_price_snapshot) {
                 $item->update(['unit_price_snapshot' => $price]);

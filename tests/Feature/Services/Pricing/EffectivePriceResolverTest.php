@@ -172,7 +172,10 @@ it('resolves a page of variants without a query per variant', function () {
 
     $resolved = resolver()->forMany($variants, $branch);
 
-    expect($queries)->toBe(1)
+    // Two queries, whatever the number of variants: the branch prices and the
+    // promotions in force (P2-E8-T2 added the second). The guard is the count
+    // not growing with the variants, not the exact figure.
+    expect($queries)->toBeLessThanOrEqual(2)
         ->and($resolved[$withBranchPrice->id]->amount)->toBe(120_000)
         ->and($resolved[$withBranchPrice->id]->source)->toBe(PriceSource::BranchPrice)
         ->and($resolved[$withVariantPrice->id]->amount)->toBe(175_000)

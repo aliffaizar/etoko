@@ -29,8 +29,6 @@ type Props = {
 
 const BANNER_TONES = {
     primary: 'bg-primary text-primary-foreground',
-    accent: 'bg-accent text-accent-foreground',
-    muted: 'bg-muted text-foreground',
 } as const;
 
 /**
@@ -115,52 +113,81 @@ function BannerRail({ banners }: { banners: ShopBanner[] }) {
 
     return (
         <section aria-label="Promosi" className="grid gap-4 lg:grid-cols-3">
-            <article
-                className={cn(
-                    'flex flex-col justify-end gap-3 rounded-2xl p-8 lg:col-span-2',
-                    BANNER_TONES[lead.tone],
-                )}
-            >
-                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    {lead.title}
-                </h1>
-                <p className="max-w-lg text-sm opacity-90">{lead.subtitle}</p>
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    className="self-start"
-                    asChild
-                >
-                    <Link href={catalog.index()} prefetch>
-                        {lead.cta_label}
-                        <ArrowRight aria-hidden />
-                    </Link>
-                </Button>
-            </article>
+            <BannerCard
+                banner={lead}
+                heading="h1"
+                className="min-h-64 p-8 lg:col-span-2"
+            />
 
-            <div className="grid gap-4">
-                {rest.map((banner) => (
-                    <article
-                        key={banner.title}
-                        className={cn(
-                            'flex flex-col justify-end gap-2 rounded-2xl p-6',
-                            BANNER_TONES[banner.tone],
-                        )}
-                    >
-                        <h2 className="text-base font-semibold">
-                            {banner.title}
-                        </h2>
-                        <p className="text-xs opacity-90">{banner.subtitle}</p>
-                        <Link
-                            href={catalog.index()}
-                            className="text-xs font-medium underline-offset-4 hover:underline"
-                        >
-                            {banner.cta_label}
-                        </Link>
-                    </article>
-                ))}
-            </div>
+            {rest.length > 0 && (
+                <div className="grid gap-4">
+                    {rest.map((banner) => (
+                        <BannerCard
+                            key={banner.id}
+                            banner={banner}
+                            heading="h2"
+                            className="p-6"
+                        />
+                    ))}
+                </div>
+            )}
         </section>
+    );
+}
+
+/**
+ * One slide. With a picture, the picture is the background and the words sit
+ * on a scrim; without one, the card falls back to the primary tone so a banner
+ * with only words still reads as a banner (P2-E8-T1).
+ */
+function BannerCard({
+    banner,
+    heading,
+    className,
+}: {
+    banner: ShopBanner;
+    heading: 'h1' | 'h2';
+    className?: string;
+}) {
+    const Heading = heading;
+    const hasImage = banner.image_url !== null;
+    const linkClass =
+        'self-start text-sm font-medium underline-offset-4 hover:underline';
+
+    return (
+        <article
+            className={cn(
+                'relative flex flex-col justify-end gap-2 overflow-hidden rounded-2xl',
+                hasImage ? 'text-white' : BANNER_TONES.primary,
+                className,
+            )}
+        >
+            {hasImage && (
+                <>
+                    <img
+                        src={banner.image_url ?? undefined}
+                        alt=""
+                        className="absolute inset-0 -z-10 size-full object-cover"
+                    />
+                    <div
+                        aria-hidden
+                        className="absolute inset-0 -z-10 bg-gradient-to-t from-black/70 to-black/10"
+                    />
+                </>
+            )}
+
+            <Heading className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {banner.title}
+            </Heading>
+            {banner.subtitle && (
+                <p className="max-w-lg text-sm opacity-90">{banner.subtitle}</p>
+            )}
+            {banner.link_url && (
+                <a href={banner.link_url} className={linkClass}>
+                    Lihat promo
+                </a>
+            )}
+        </article>
     );
 }
 
