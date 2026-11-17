@@ -131,3 +131,13 @@ export function formatRelative(
 
     return 'baru saja';
 }
+
+const COMPACT = new Intl.NumberFormat('id-ID', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+});
+
+/** Short amounts for chart axes, e.g. 1250000 -> "Rp1,3 jt". */
+export function formatRupiahCompact(amount: number): string {
+    return `Rp${COMPACT.format(amount)}`;
+}

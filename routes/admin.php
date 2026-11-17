@@ -22,12 +22,15 @@ use App\Http\Controllers\Admin\ProductImportController;
 use App\Http\Controllers\Admin\ProductVariantController;
 use App\Http\Controllers\Admin\PromotionController;
 use App\Http\Controllers\Admin\RefundController;
+use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\ReportExportController;
 use App\Http\Controllers\Admin\ReturnController;
 use App\Http\Controllers\Admin\ReviewController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VoucherController;
+use App\Services\Reporting\ReportCatalog;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -646,5 +649,51 @@ Route::middleware(['auth', 'verified', 'branch'])
             Route::put('{role}', [RoleController::class, 'update'])
                 ->middleware('can:roles.manage')
                 ->name('update');
+        });
+        /*
+         * Reports (P2-E7). Each screen carries the permission of its domain
+         * (`ReportCatalog::REPORTS`); branch staff reach the same screens and
+         * read their own branch through the branch global scope (BR-3).
+         * Exporting needs `reports.export` on top, checked per report by the
+         * controller because the report is a route parameter.
+         */
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('sales', [ReportController::class, 'sales'])
+                ->middleware('can:reports.sales.view')
+                ->name('sales');
+
+            Route::get('transactions', [ReportController::class, 'transactions'])
+                ->middleware('can:reports.sales.view')
+                ->name('transactions');
+
+            Route::get('stock', [ReportController::class, 'stock'])
+                ->middleware('can:reports.stock.view')
+                ->name('stock');
+
+            Route::get('stock-card', [ReportController::class, 'stockCard'])
+                ->middleware('can:reports.stock.view')
+                ->name('stock-card');
+
+            Route::get('products', [ReportController::class, 'products'])
+                ->middleware('can:reports.product.view')
+                ->name('products');
+
+            Route::get('customers', [ReportController::class, 'customers'])
+                ->middleware('can:reports.customer.view')
+                ->name('customers');
+
+            Route::get('branches', [ReportController::class, 'branches'])
+                ->middleware('can:reports.branch.view')
+                ->name('branches');
+
+            Route::get('exports/{file}', [ReportExportController::class, 'download'])
+                ->middleware('can:reports.export')
+                ->where('file', '[a-z0-9][a-z0-9\-]*\.(xlsx|pdf)')
+                ->name('exports.download');
+
+            Route::get('{report}/export', [ReportExportController::class, 'export'])
+                ->middleware('can:reports.export')
+                ->whereIn('report', array_keys(ReportCatalog::REPORTS))
+                ->name('export');
         });
     });

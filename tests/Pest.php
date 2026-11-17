@@ -1,6 +1,10 @@
 <?php
 
+use App\Models\Branch;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Payment;
+use App\Models\Product;
 use App\Services\Payment\Midtrans\MidtransClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Fakes\FakeMidtransClient;
@@ -86,4 +90,51 @@ function midtransStatusAnswer(Payment $payment, string $transactionStatus = 'set
         'transaction_id' => 'mt-status-1',
         'payment_type' => 'bank_transfer',
     ];
+}
+
+/**
+ * A paid order with known lines, for the report tests (P2-E7-T10).
+ *
+ * Each line is `[unit price, quantity, discount, refunded quantity]` with an
+ * optional `product` key; the order's totals are worked out from them so the
+ * expected figures in a test can be added up by hand.
+ *
+ * @param  array<int, array{0: int, 1: int, 2?: int, 3?: int, product?: Product|null, sku?: string}>  $lines
+ * @param  array<string, mixed>  $attributes
+ */
+function reportSale(Branch $branch, string $paidAt, array $lines, array $attributes = []): Order
+{
+    $subtotal = 0;
+    $discount = 0;
+
+    foreach ($lines as $line) {
+        $subtotal += $line[0] * $line[1];
+        $discount += $line[2] ?? 0;
+    }
+
+    $shipping = $attributes['shipping_cost'] ?? 0;
+
+    $order = Order::factory()->forBranch($branch)->paid()->create([
+        'placed_at' => $paidAt,
+        'paid_at' => $paidAt,
+        'subtotal' => $subtotal,
+        'discount_total' => $discount,
+        'shipping_cost' => $shipping,
+        'grand_total' => $subtotal - $discount + $shipping,
+        ...$attributes,
+    ]);
+
+    foreach ($lines as $index => $line) {
+        OrderItem::factory()->forOrder($order)->create([
+            'product_id' => ($line['product'] ?? null)?->getKey(),
+            'sku' => $line['sku'] ?? "SKU-{$order->id}-{$index}",
+            'unit_price' => $line[0],
+            'quantity' => $line[1],
+            'discount_amount' => $line[2] ?? 0,
+            'subtotal' => $line[0] * $line[1] - ($line[2] ?? 0),
+            'refunded_quantity' => $line[3] ?? 0,
+        ]);
+    }
+
+    return $order;
 }

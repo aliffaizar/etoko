@@ -54,6 +54,7 @@ final class NotificationPresenter
             'order_awaiting_branch' => 'Pesanan perlu diproses',
             'order_status' => 'Status pesanan',
             'order_ready_for_pickup' => 'Pesanan siap diambil',
+            'report_export' => 'Export laporan',
             default => 'Notifikasi',
         };
     }
@@ -74,6 +75,9 @@ final class NotificationPresenter
                 ? route('branch.stock-transfers.show', $data['stock_transfer_id'])
                 : null,
             'order_awaiting_branch' => self::awaitingOrderUrl($data, $viewer),
+            'report_export' => isset($data['file'])
+                ? route('admin.reports.exports.download', ['file' => $data['file']])
+                : null,
             'order_status', 'order_ready_for_pickup' => isset($data['order_id'])
                 ? route('shop.account.orders.show', $data['order_id'])
                 : null,

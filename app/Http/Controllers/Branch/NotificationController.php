@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Notifications\DatabaseNotification;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /**
  * The signed-in user's own notifications (P1-E4-T9, P2-E6-T4).
@@ -51,7 +52,7 @@ class NotificationController extends Controller
      * A POST rather than a link straight to the target, so opening it is what
      * marks it read. A notification with nothing to open goes back.
      */
-    public function open(Request $request, string $notification): RedirectResponse
+    public function open(Request $request, string $notification): SymfonyResponse
     {
         /** @var User $actor */
         $actor = $request->user();
@@ -62,7 +63,15 @@ class NotificationController extends Controller
 
         $url = NotificationPresenter::item($found, $actor)['url'];
 
-        return $url === null ? back() : redirect()->to($url);
+        if ($url === null) {
+            return back();
+        }
+
+        // A file is not a page: an Inertia visit cannot follow a redirect to a
+        // download, so the browser is sent there itself (P2-E7-T9).
+        return ($found->data['type'] ?? null) === 'report_export'
+            ? Inertia::location($url)
+            : redirect()->to($url);
     }
 
     public function markAllRead(): RedirectResponse

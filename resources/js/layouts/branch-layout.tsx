@@ -1,5 +1,12 @@
 import {
     ArrowRightLeft,
+    ChartColumn,
+    ChartLine,
+    Contact,
+    Receipt,
+    ScrollText,
+    Trophy,
+    Warehouse,
     Banknote,
     Boxes,
     ClipboardList,
@@ -37,6 +44,7 @@ import { index as paymentsIndex } from '@/routes/admin/payments';
 import { index as refundsIndex } from '@/routes/admin/refunds';
 import { index as returnsIndex } from '@/routes/admin/returns';
 import { index as productsIndex } from '@/routes/admin/products';
+import reports from '@/routes/admin/reports';
 import { index as usersIndex } from '@/routes/admin/users';
 import type { AppLayoutProps, PanelNavGroup } from '@/types';
 
@@ -161,6 +169,57 @@ function useBranchNavGroups(): PanelNavGroup[] {
                 href: stockOpnames.index(),
                 icon: ClipboardList,
                 permission: 'stock_opnames.view',
+            },
+        ],
+    });
+
+    // The report screens live under `/admin/reports` and read through the
+    // branch global scope, so a branch account's reports are its own branch
+    // (P2-E7). Warehouse staff hold only `reports.stock.view`.
+    groups.push({
+        label: 'Laporan',
+        items: [
+            {
+                title: 'Penjualan',
+                href: reports.sales(),
+                icon: ChartLine,
+                permission: 'reports.sales.view',
+            },
+            {
+                title: 'Transaksi',
+                href: reports.transactions(),
+                icon: Receipt,
+                permission: 'reports.sales.view',
+            },
+            {
+                title: 'Produk Terlaris',
+                href: reports.products(),
+                icon: Trophy,
+                permission: 'reports.product.view',
+            },
+            {
+                title: 'Laporan Pelanggan',
+                href: reports.customers(),
+                icon: Contact,
+                permission: 'reports.customer.view',
+            },
+            {
+                title: 'Posisi Stok',
+                href: reports.stock(),
+                icon: Warehouse,
+                permission: 'reports.stock.view',
+            },
+            {
+                title: 'Kartu Stok',
+                href: reports.stockCard(),
+                icon: ScrollText,
+                permission: 'reports.stock.view',
+            },
+            {
+                title: 'Performa Cabang',
+                href: reports.branches(),
+                icon: ChartColumn,
+                permission: 'reports.branch.view',
             },
         ],
     });

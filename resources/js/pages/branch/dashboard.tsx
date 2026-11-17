@@ -1,14 +1,21 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Deferred, Head, Link, router } from '@inertiajs/react';
 import {
+    ArrowDownToLine,
+    ArrowUpFromLine,
     Bell,
     BellOff,
     Boxes,
     FileClock,
+    Inbox,
+    PackageCheck,
+    TrendingUp,
     TriangleAlert,
     Users,
     Warehouse,
 } from 'lucide-react';
 import Heading from '@/components/heading';
+import { FilterBar } from '@/components/panel/filter-bar';
+import { ChartSkeleton, SalesChart } from '@/components/panel/sales-chart';
 import { StatCard } from '@/components/panel/stat-card';
 import { StatusBadge } from '@/components/panel/status-badge';
 import { Button } from '@/components/ui/button';
@@ -20,12 +27,19 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { useAuthorization } from '@/hooks/use-authorization';
-import { formatNumber, formatRelative } from '@/lib/format';
+import { formatNumber, formatRelative, formatRupiah } from '@/lib/format';
+import reports from '@/routes/admin/reports';
 import { dashboard } from '@/routes/branch';
 import notifications from '@/routes/branch/notifications';
 import stocks from '@/routes/branch/stocks';
 import stockTransfers from '@/routes/branch/stock-transfers';
-import type { BranchAlert, LowStockRow } from '@/types';
+import type {
+    BranchAlert,
+    FilterOption,
+    LowStockRow,
+    ReportFilters,
+    SalesPoint,
+} from '@/types';
 
 type DashboardProps = {
     stats: {
@@ -34,8 +48,22 @@ type DashboardProps = {
         low_stock: number;
         open_drafts: number;
     };
+    stock: {
+        units: number;
+        variants: number;
+        in_month: number;
+        out_month: number;
+    };
+    /** Null when the viewer may not read sales (`reports.sales.view`). */
+    sales: { net: number; orders: number; average_order: number } | null;
+    /** Null when the viewer does not handle orders. */
+    orders: { incoming: number; processing: number } | null;
     lowStock: LowStockRow[];
     notifications: BranchAlert[];
+    /** Deferred; null when the viewer may not read sales. */
+    salesChart?: SalesPoint[] | null;
+    period: ReportFilters;
+    branchFilter: { selected: string; options: FilterOption[] };
 };
 
 /**
@@ -49,11 +77,19 @@ type DashboardProps = {
  */
 export default function BranchDashboard({
     stats,
+    stock,
+    sales,
+    orders,
     lowStock,
     notifications: alerts,
+    salesChart,
+    branchFilter,
 }: DashboardProps) {
-    const { auth } = useAuthorization();
+    const { auth, can } = useAuthorization();
     const unreadCount = alerts.filter((alert) => !alert.is_read).length;
+    const supervisedBranch = branchFilter.options.find(
+        (option) => option.value === branchFilter.selected,
+    );
 
     return (
         <>
@@ -65,9 +101,119 @@ export default function BranchDashboard({
                     description={
                         auth?.branch
                             ? `Operasional ${auth.branch.name}.`
-                            : 'Operasional cabang.'
+                            : supervisedBranch
+                              ? `Operasional ${supervisedBranch.label}.`
+                              : 'Operasional seluruh cabang.'
                     }
                 />
+
+                {/* Central staff supervise any one branch, or all of them. */}
+                {branchFilter.options.length > 0 && (
+                    <FilterBar
+                        fields={[
+                            {
+                                type: 'select',
+                                key: 'branch',
+                                label: 'Cabang',
+                                allLabel: 'Semua cabang',
+                                options: branchFilter.options,
+                            },
+                        ]}
+                        values={{ branch: branchFilter.selected }}
+                        onChange={(next) =>
+                            router.get(
+                                dashboard.url(),
+                                next.branch ? { branch: next.branch } : {},
+                                { preserveScroll: true },
+                            )
+                        }
+                        onReset={() => router.get(dashboard.url())}
+                        isFiltered={branchFilter.selected !== ''}
+                    />
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {sales && (
+                        <StatCard
+                            label="Penjualan bulan ini"
+                            value={formatRupiah(sales.net)}
+                            hint={`${formatNumber(sales.orders)} pesanan · rata-rata ${formatRupiah(sales.average_order)}`}
+                            icon={TrendingUp}
+                        />
+                    )}
+                    {orders && (
+                        <>
+                            <StatCard
+                                label="Pesanan masuk"
+                                value={orders.incoming}
+                                hint="Sudah dibayar, belum mulai dikemas."
+                                icon={Inbox}
+                            />
+                            <StatCard
+                                label="Pesanan diproses"
+                                value={orders.processing}
+                                hint="Sedang dikemas, belum dikirim/diambil."
+                                icon={PackageCheck}
+                            />
+                        </>
+                    )}
+                    <StatCard
+                        label="Stok produk"
+                        value={stock.units}
+                        hint={`${formatNumber(stock.variants)} varian ada di rak`}
+                        icon={Boxes}
+                    />
+                    <StatCard
+                        label="Barang masuk bulan ini"
+                        value={stock.in_month}
+                        hint="Unit, dari riwayat stok."
+                        icon={ArrowDownToLine}
+                    />
+                    <StatCard
+                        label="Barang keluar bulan ini"
+                        value={stock.out_month}
+                        hint="Unit, termasuk yang terjual."
+                        icon={ArrowUpFromLine}
+                    />
+                </div>
+
+                {salesChart !== null && (
+                    <Card className="min-w-0">
+                        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+                            <div className="flex flex-col gap-1.5">
+                                <CardTitle>Penjualan cabang</CardTitle>
+                                <CardDescription>
+                                    Penjualan bersih harian, 30 hari terakhir.
+                                </CardDescription>
+                            </div>
+                            {can('reports.sales.view') && (
+                                <Button variant="outline" size="sm" asChild>
+                                    <Link
+                                        href={reports.sales({
+                                            query: branchFilter.selected
+                                                ? {
+                                                      branch: branchFilter.selected,
+                                                  }
+                                                : {},
+                                        })}
+                                    >
+                                        Laporan penjualan
+                                    </Link>
+                                </Button>
+                            )}
+                        </CardHeader>
+                        <CardContent>
+                            <Deferred
+                                data="salesChart"
+                                fallback={<ChartSkeleton />}
+                            >
+                                {salesChart && (
+                                    <SalesChart points={salesChart} />
+                                )}
+                            </Deferred>
+                        </CardContent>
+                    </Card>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <StatCard
@@ -283,11 +429,6 @@ export default function BranchDashboard({
                         </CardContent>
                     </Card>
                 </div>
-
-                <p className="text-sm text-muted-foreground">
-                    Penjualan cabang dan pesanan masuk ditambahkan pada epic
-                    P1-E7 dan P2-E7.
-                </p>
             </div>
         </>
     );

@@ -2,14 +2,24 @@
 
 namespace App\Http\Controllers\Branch;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
+use App\Models\Order;
 use App\Models\Stock;
 use App\Models\StockEntry;
 use App\Models\StockIssue;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Notifications\LowStockNotification;
 use App\Notifications\StockTransferNotification;
+use App\Services\Branch\BranchContext;
+use App\Services\Reporting\ReportFilters;
+use App\Services\Reporting\SalesReport;
+use Carbon\CarbonImmutable;
+use Closure;
+use Illuminate\Http\Request;
 use Illuminate\Notifications\DatabaseNotification;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -27,30 +37,188 @@ use Inertia\Response;
  * what the figure was at the time, which is what makes "why was I told this?"
  * answerable.
  *
+ * Below them sit the figures the brief asks of a branch (brief.md §5,
+ * P2-E7-T3): this month's sales, orders waiting and in progress, what is on
+ * the shelves, and what came in and went out this month. Sales follow the one
+ * definition in `SalesQuery` (ADR-070) and are shown only to holders of
+ * `reports.sales.view`; the order counts only to staff who handle orders.
+ *
  * Every query here is narrowed by the branch global scope, so a branch user
- * only ever sees their own branch (BR-3).
+ * only ever sees their own branch (BR-3). Central staff see every branch, or
+ * one branch with `?branch=`.
  */
 class DashboardController extends Controller
 {
     /** Rows shown on the dashboard before it sends people to the full listing. */
     private const PREVIEW_ROWS = 8;
 
-    public function __invoke(): Response
+    public function __invoke(Request $request, BranchContext $context): Response
     {
         /** @var User $actor */
-        $actor = request()->user();
+        $actor = $request->user();
+        $branchId = $this->supervisedBranch($request, $actor);
+        // `User` carries no branch scope, so the staff count is narrowed by
+        // hand to the branch on screen.
+        $staffBranchId = $branchId ?? ($actor->isCentral() ? null : $actor->branch_id);
+        $today = CarbonImmutable::now();
+        $month = ReportFilters::monthOf($today);
+        $maySeeSales = $actor->can('reports.sales.view');
+        $maySeeOrders = $actor->can('orders.view') || $actor->can('orders.pack');
 
         return Inertia::render('branch/dashboard', [
-            'stats' => [
-                'warehouses' => Warehouse::count(),
-                'staff' => User::query()->whereNotNull('branch_id')->count(),
-                'low_stock' => Stock::query()->low()->count(),
-                'open_drafts' => StockEntry::query()->where('status', 'draft')->count()
-                    + StockIssue::query()->where('status', 'draft')->count(),
-            ],
-            'lowStock' => $this->lowStockPreview(),
+            ...$this->scoped($context, $branchId, fn (): array => [
+                'stats' => [
+                    'warehouses' => Warehouse::count(),
+                    'staff' => User::query()->whereNotNull('branch_id')
+                        ->when($staffBranchId !== null, fn ($query) => $query->where('branch_id', $staffBranchId))
+                        ->count(),
+                    'low_stock' => Stock::query()->low()->count(),
+                    'open_drafts' => StockEntry::query()->where('status', 'draft')->count()
+                        + StockIssue::query()->where('status', 'draft')->count(),
+                ],
+                'stock' => $this->stockFigures($month),
+                'sales' => $maySeeSales ? $this->salesFigures($month) : null,
+                'orders' => $maySeeOrders ? $this->orderFigures() : null,
+                'lowStock' => $this->lowStockPreview(),
+            ])(),
             'notifications' => $this->notificationFeed($actor),
+            'salesChart' => $maySeeSales
+                ? Inertia::defer($this->scoped(
+                    $context,
+                    $branchId,
+                    fn (): array => (new SalesReport(ReportFilters::lastDays(30, $today)))->series(),
+                ))
+                : null,
+            'period' => $month->toArray(),
+            'branchFilter' => [
+                'selected' => $branchId === null ? '' : (string) $branchId,
+                'options' => $actor->isCentral() ? $this->branchOptions() : [],
+            ],
         ]);
+    }
+
+    /**
+     * A read restricted to the branch on screen.
+     *
+     * A central account looking at one branch reads it the way that branch's
+     * own staff would: restricted, so every query is narrowed by the same
+     * global scope (BR-3). Deferred props resolve on a later request, so each
+     * closure carries the restriction itself rather than relying on it being
+     * in force when the controller returns.
+     *
+     * @template TValue
+     *
+     * @param  Closure(): TValue  $read
+     * @return Closure(): TValue
+     */
+    private function scoped(BranchContext $context, ?int $branchId, Closure $read): Closure
+    {
+        if ($branchId === null) {
+            return $read;
+        }
+
+        return fn (): mixed => $context->forBranch($branchId, $read);
+    }
+
+    /**
+     * The branch a central account asked to look at with `?branch=`, or null
+     * for "every branch". Branch staff never choose: the middleware has
+     * already restricted them to their own.
+     */
+    private function supervisedBranch(Request $request, User $actor): ?int
+    {
+        if (! $actor->isCentral() || ! $request->filled('branch')) {
+            return null;
+        }
+
+        $branchId = $request->integer('branch');
+
+        abort_unless(Branch::query()->whereKey($branchId)->exists(), 404);
+
+        return $branchId;
+    }
+
+    /**
+     * This month's goods sales, by the same rule as the sales report.
+     *
+     * @return array{net: int, orders: int, average_order: int}
+     */
+    private function salesFigures(ReportFilters $month): array
+    {
+        $summary = (new SalesReport($month))->summary();
+
+        return [
+            'net' => $summary['net'],
+            'orders' => $summary['orders'],
+            'average_order' => $summary['average_order'],
+        ];
+    }
+
+    /**
+     * Orders waiting on the branch: paid and not yet started ("masuk"), and
+     * started but not yet out of the door ("diproses").
+     *
+     * @return array{incoming: int, processing: int}
+     */
+    private function orderFigures(): array
+    {
+        $counts = Order::query()
+            ->whereIn('status', [OrderStatus::Paid->value, OrderStatus::Processing->value])
+            ->toBase()
+            ->select('status')
+            ->selectRaw('COUNT(*) as count')
+            ->groupBy('status')
+            ->pluck('count', 'status');
+
+        return [
+            'incoming' => (int) ($counts[OrderStatus::Paid->value] ?? 0),
+            'processing' => (int) ($counts[OrderStatus::Processing->value] ?? 0),
+        ];
+    }
+
+    /**
+     * What is on the shelves now, and what came in and went out this month,
+     * read from the ledger (ADR-024). Holds taken at checkout move nothing
+     * and carry a change of zero, so they are not in either figure.
+     *
+     * @return array{units: int, variants: int, in_month: int, out_month: int}
+     */
+    private function stockFigures(ReportFilters $month): array
+    {
+        $onHand = Stock::query()
+            ->toBase()
+            ->selectRaw('COALESCE(SUM(quantity), 0) as units')
+            ->selectRaw('SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) as variants')
+            ->first();
+
+        $moved = StockMovement::query()
+            ->whereBetween('created_at', [$month->from, $month->until])
+            ->toBase()
+            ->selectRaw('COALESCE(SUM(CASE WHEN quantity_change > 0 THEN quantity_change ELSE 0 END), 0) as moved_in')
+            ->selectRaw('COALESCE(SUM(CASE WHEN quantity_change < 0 THEN -quantity_change ELSE 0 END), 0) as moved_out')
+            ->first();
+
+        return [
+            'units' => (int) ($onHand->units ?? 0),
+            'variants' => (int) ($onHand->variants ?? 0),
+            'in_month' => (int) ($moved->moved_in ?? 0),
+            'out_month' => (int) ($moved->moved_out ?? 0),
+        ];
+    }
+
+    /**
+     * @return array<int, array{value: string, label: string}>
+     */
+    private function branchOptions(): array
+    {
+        return Branch::query()
+            ->ordered()
+            ->get(['id', 'name', 'code'])
+            ->map(fn (Branch $branch): array => [
+                'value' => (string) $branch->id,
+                'label' => "{$branch->name} ({$branch->code})",
+            ])
+            ->all();
     }
 
     /**
