@@ -11,9 +11,10 @@ use App\Models\Voucher;
 use Illuminate\Database\Seeder;
 
 /**
- * Four vouchers for local development (P2-E5), one of each shape worth
- * trying at the storefront: a capped percentage, a fixed amount with a
- * minimum spend, free shipping, and one narrowed to a category.
+ * Vouchers for local development (P2-E5), one of each shape worth trying at
+ * the storefront: a capped percentage, fixed amounts with a minimum spend,
+ * free shipping, one narrowed to a category, one with a small quota, and one
+ * that has already ended.
  *
  * Saved through `SaveVoucher`, the action the admin form uses. Skipped per
  * code, so re-running never duplicates or overwrites an edited voucher.
@@ -61,6 +62,37 @@ class VoucherDemoSeeder extends Seeder
                 'value' => 5,
                 'per_user_limit' => 2,
                 'categories' => $electronics === null ? [] : [(int) $electronics],
+            ],
+            [
+                'code' => 'PELANGGANBARU',
+                'name' => 'Potongan pelanggan baru Rp15.000',
+                'type' => VoucherType::Fixed,
+                'value' => 15_000,
+                'min_order_amount' => 75_000,
+                'quota' => 200,
+                'per_user_limit' => 1,
+                'categories' => [],
+            ],
+            [
+                'code' => 'KILAT50K',
+                'name' => 'Potongan kilat Rp50.000',
+                'type' => VoucherType::Fixed,
+                'value' => 50_000,
+                'min_order_amount' => 500_000,
+                'quota' => 20,
+                'per_user_limit' => 1,
+                'categories' => [],
+            ],
+            [
+                'code' => 'AKHIRBULAN',
+                'name' => 'Diskon akhir bulan 12% (sudah berakhir)',
+                'type' => VoucherType::Percentage,
+                'value' => 12,
+                'max_discount' => 60_000,
+                'per_user_limit' => 1,
+                'starts_at' => now()->subMonths(2),
+                'ends_at' => now()->subMonth(),
+                'categories' => [],
             ],
         ];
 

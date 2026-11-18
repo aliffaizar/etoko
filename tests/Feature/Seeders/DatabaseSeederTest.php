@@ -9,6 +9,7 @@ use App\Models\ProductVariant;
 use App\Models\Stock;
 use App\Models\StockTransfer;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
 
 /*
@@ -68,6 +69,30 @@ it('leaves stocks reconcilable against the ledger (ADR-024)', function () {
     expect($drifted)->toBeEmpty()
         ->and(Stock::acrossBranches()->where('quantity', '<', 0)->count())->toBe(0)
         ->and(Stock::acrossBranches()->whereColumn('reserved_quantity', '>', 'quantity')->count())->toBe(0);
+});
+
+it('backdates the order history after the shop was set up, never before', function () {
+    // OrderHistoryDemoSeeder places orders weeks in the past; the catalogue,
+    // the customers and the opening stock must already exist on those days.
+    $oldest = Order::acrossBranches()->min('placed_at');
+
+    $soldBeforeReceived = DB::table('stock_movements as sold')
+        ->where('sold.quantity_change', '<', 0)
+        ->whereNotExists(fn ($received) => $received->from('stock_movements as received')
+            ->whereColumn('received.warehouse_id', 'sold.warehouse_id')
+            ->whereColumn('received.product_variant_id', 'sold.product_variant_id')
+            ->where('received.quantity_change', '>', 0)
+            ->whereColumn('received.created_at', '<=', 'sold.created_at'))
+        ->count();
+
+    $orderedBeforeSignup = Order::acrossBranches()
+        ->join('users', 'users.id', '=', 'orders.user_id')
+        ->whereColumn('orders.placed_at', '<', 'users.created_at')
+        ->count();
+
+    expect(CarbonImmutable::parse($oldest)->isBefore(now()->subDay()))->toBeTrue()
+        ->and($soldBeforeReceived)->toBe(0)
+        ->and($orderedBeforeSignup)->toBe(0);
 });
 
 it('seeds one stock transfer at each step worth looking at (P2-E3)', function () {

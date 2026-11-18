@@ -171,7 +171,7 @@ class OrderDemoSeeder extends Seeder
      * transaction existing at Midtrans — which is also what the status API
      * will say about it afterwards: nothing recorded, nothing to change.
      */
-    private function stubMidtrans(): void
+    protected function stubMidtrans(): void
     {
         app()->instance(MidtransClient::class, new class extends MidtransClient
         {
@@ -252,13 +252,15 @@ class OrderDemoSeeder extends Seeder
      *
      * @param  array<int, ProductVariant>  $lines
      * @param  array{status: OrderStatus|null, fulfillment: FulfillmentType, note: string}  $scenario
+     * @param  int  $quantity  Units per line.
      */
-    private function place(
+    protected function place(
         PlaceOrder $placeOrder,
         Branch $branch,
         User $customer,
         array $lines,
         array $scenario,
+        int $quantity = self::QUANTITY,
     ): ?Order {
         $fulfillment = $this->supportedFulfillment($branch, $scenario['fulfillment']);
         $address = $this->addressOf($customer, $fulfillment);
@@ -267,7 +269,7 @@ class OrderDemoSeeder extends Seeder
             return null;
         }
 
-        $cart = $this->filledCart($customer, $branch, $lines);
+        $cart = $this->filledCart($customer, $branch, $lines, $quantity);
 
         try {
             return $placeOrder->handle($cart, $branch, $customer, [
@@ -370,7 +372,7 @@ class OrderDemoSeeder extends Seeder
      *
      * @param  array<int, ProductVariant>  $lines
      */
-    private function filledCart(User $customer, Branch $branch, array $lines): Cart
+    protected function filledCart(User $customer, Branch $branch, array $lines, int $quantity = self::QUANTITY): Cart
     {
         $cart = Cart::firstOrCreate(
             ['user_id' => $customer->getKey()],
@@ -383,7 +385,7 @@ class OrderDemoSeeder extends Seeder
         foreach ($lines as $variant) {
             $cart->items()->create([
                 'product_variant_id' => $variant->getKey(),
-                'quantity' => self::QUANTITY,
+                'quantity' => $quantity,
                 'unit_price_snapshot' => $variant->effectivePrice(),
             ]);
         }
@@ -423,7 +425,7 @@ class OrderDemoSeeder extends Seeder
      * The fulfilment the scenario asked for, or whatever the branch does
      * support instead.
      */
-    private function supportedFulfillment(Branch $branch, FulfillmentType $preferred): ?FulfillmentType
+    protected function supportedFulfillment(Branch $branch, FulfillmentType $preferred): ?FulfillmentType
     {
         $supports = fn (FulfillmentType $type): bool => match ($type) {
             FulfillmentType::Delivery => $branch->supports_delivery,
@@ -447,7 +449,7 @@ class OrderDemoSeeder extends Seeder
      * An address for the customer, created if they have none, so a delivery
      * order has somewhere to go.
      */
-    private function addressOf(User $customer, ?FulfillmentType $fulfillment): ?Address
+    protected function addressOf(User $customer, ?FulfillmentType $fulfillment): ?Address
     {
         if ($fulfillment === null || ! $fulfillment->requiresShipping()) {
             return null;
@@ -474,7 +476,7 @@ class OrderDemoSeeder extends Seeder
      * Somebody from the branch to put on the status changes, so the timeline
      * does not read as though nobody was involved.
      */
-    private function branchStaffOf(int $branchId): ?User
+    protected function branchStaffOf(int $branchId): ?User
     {
         return User::query()
             ->where('branch_id', $branchId)
