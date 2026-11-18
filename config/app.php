@@ -56,6 +56,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Staff Panel Host (ADR-063, P2-E9-T7)
+    |--------------------------------------------------------------------------
+    |
+    | The host the `/admin` and `/branch` panels are served on, such as
+    | `admin.etoko.id`. Once it is set, the storefront answers only on the
+    | host of APP_URL and the panels only on this one. Null keeps everything
+    | on one host, which is what local development and the test suite use.
+    |
+    | Keep SESSION_DOMAIN null: host-only session cookies are what keep a
+    | storefront session and a panel session apart.
+    |
+    */
+
+    'admin_domain' => env('ADMIN_DOMAIN') ?: null,
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

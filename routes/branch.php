@@ -8,6 +8,7 @@ use App\Http\Controllers\Branch\StockEntryController;
 use App\Http\Controllers\Branch\StockIssueController;
 use App\Http\Controllers\Branch\StockOpnameController;
 use App\Http\Controllers\Branch\StockTransferController;
+use App\Support\AdminHost;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -19,9 +20,13 @@ use Illuminate\Support\Facades\Route;
 | users who are not staff or who have no branch assigned, and every query in
 | here is narrowed by the branch global scope (BR-3).
 |
+| Served on the panel host only once `ADMIN_DOMAIN` is set (ADR-063); on
+| the storefront's host these paths do not exist and answer 404.
+|
 */
 
-Route::middleware(['auth', 'verified', 'branch'])
+Route::domain(AdminHost::panelRouteDomain())
+    ->middleware(['auth', 'verified', 'branch'])
     ->prefix('branch')
     ->name('branch.')
     ->group(function () {

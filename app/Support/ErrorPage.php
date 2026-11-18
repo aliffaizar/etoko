@@ -65,8 +65,13 @@ final class ErrorPage
             'message' => self::message($status, $exception),
             // A guest goes to the storefront; `RoleHome` would hand them the
             // authenticated dashboard, which only bounces them to the login
-            // screen again.
-            'homeUrl' => $user === null ? route('home') : RoleHome::urlFor($user),
+            // screen again. On the panel host, which has no storefront
+            // (ADR-063), the guest is sent to sign in there instead.
+            'homeUrl' => match (true) {
+                $user !== null => RoleHome::urlFor($user, $request),
+                AdminHost::serves($request) => route('login'),
+                default => route('home'),
+            },
             'homeLabel' => $user === null ? 'Kembali ke halaman utama' : 'Kembali ke halaman Anda',
         ];
     }

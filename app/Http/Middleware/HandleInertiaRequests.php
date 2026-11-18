@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\User;
+use App\Support\AdminHost;
 use App\Support\NotificationPresenter;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\DatabaseNotification;
@@ -70,8 +71,19 @@ class HandleInertiaRequests extends Middleware
             // partial reload that does not ask for it does not pay for it.
             // Kept apart from any page's own `notifications` prop (the branch
             // dashboard has one) by its name.
-            'notificationBell' => $user instanceof User && $user->isStaff()
+            'notificationBell' => $user instanceof User && $user->isStaff() && AdminHost::reachableFrom($request)
                 ? fn (): array => $this->notificationBell($user)
+                : null,
+            // Whether the panels answer on this host (ADR-063). False on the
+            // storefront once they have a host of their own, where a staff
+            // member's settings screens are drawn in the shop's shell: the
+            // panel menu would link to a host the session does not reach.
+            'panelsReachable' => AdminHost::reachableFrom($request),
+            // The root URL of each host, port included, for the few links that
+            // cross from one to the other (`HostLink`). Null on a single host,
+            // where every link is a plain path.
+            'hostRoots' => AdminHost::isSeparate()
+                ? ['storefront' => AdminHost::storefrontRootUrl(), 'panel' => AdminHost::rootUrl()]
                 : null,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

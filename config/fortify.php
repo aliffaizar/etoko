@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\AdminHost;
 use Laravel\Fortify\Features;
 
 return [
@@ -140,11 +141,16 @@ return [
     |
     | These settings configure Fortify's passkey (WebAuthn) support.
     |
+    | The relying party stays the storefront's host even when the panels have
+    | a host of their own (ADR-063): a subdomain may use its parent as the RP
+    | ID, so one passkey signs a staff member in on either host. The panel
+    | host only has to be an allowed origin.
+    |
     */
 
     'passkeys' => [
         'relying_party_id' => parse_url(config('app.url'), PHP_URL_HOST),
-        'allowed_origins' => [config('app.url')],
+        'allowed_origins' => array_values(array_filter([config('app.url'), AdminHost::rootUrl()])),
         'user_handle_secret' => env('PASSKEYS_USER_HANDLE_SECRET', config('app.key')),
         'timeout' => 60000,
     ],

@@ -23,7 +23,17 @@ const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
  * object carries the shared `auth` props, so the choice follows the role rather
  * than the page name.
  */
-function shellFor(auth: Auth | undefined): ComponentType<AppLayoutProps> {
+function shellFor(
+    auth: Auth | undefined,
+    panelsReachable: boolean,
+): ComponentType<AppLayoutProps> {
+    // Staff on the storefront host once the panels have a host of their own
+    // (ADR-063): the panel menu would point at a host this session does not
+    // reach, so they get the customer's shell here.
+    if (!panelsReachable) {
+        return AppLayout;
+    }
+
     if (auth?.isCentral) {
         return AdminLayout;
     }
@@ -51,7 +61,10 @@ void createInertiaApp({
                 // The layout callback is handed the untyped `Page`, so the
                 // shared props need naming here.
                 return [
-                    shellFor(page.props.auth as Auth | undefined),
+                    shellFor(
+                        page.props.auth as Auth | undefined,
+                        page.props.panelsReachable !== false,
+                    ),
                     SettingsLayout,
                 ];
             default:

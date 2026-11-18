@@ -21,13 +21,21 @@ final class RoleHome
      * Falls back through the panel the role belongs to, so a role whose own
      * landing page does not exist yet (POS, for example) still lands somewhere
      * useful instead of on the generic dashboard.
+     *
+     * Host aware (ADR-063): on a host the panels are not served from, staff
+     * belong on the storefront. Sending them to the panel host would only land
+     * them on its sign-in screen, since the session does not cross hosts.
      */
-    public static function urlFor(?User $user): string
+    public static function urlFor(?User $user, ?Request $request = null): string
     {
         $role = $user?->appRole();
 
         if ($role === null) {
             return config('fortify.home');
+        }
+
+        if (! AdminHost::reachableFrom($request ?? request())) {
+            return route('home');
         }
 
         $candidates = [$role->homeRouteName()];
@@ -62,12 +70,12 @@ final class RoleHome
         $intended = $request->session()->pull('url.intended');
 
         if (! is_string($intended) || trim($intended) === '') {
-            return self::urlFor($user);
+            return self::urlFor($user, $request);
         }
 
         return self::mayEnter($request, $user, $intended)
             ? $intended
-            : self::urlFor($user);
+            : self::urlFor($user, $request);
     }
 
     /**

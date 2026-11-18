@@ -16,6 +16,16 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             sidebarOpen: boolean;
+            /**
+             * Whether the staff panels answer on this host (ADR-063): false
+             * on the storefront once they have a host of their own.
+             */
+            panelsReachable: boolean;
+            /**
+             * Each host's root URL, port included, for links that cross
+             * between them (`HostLink`); null while there is one host.
+             */
+            hostRoots: { storefront: string; panel: string } | null;
             /** The panel's bell (P2-E6-T4); null for a non-staff account. */
             notificationBell?: NotificationBell | null;
             /**

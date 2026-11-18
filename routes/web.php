@@ -17,6 +17,7 @@ use App\Http\Controllers\Shop\ReturnController;
 use App\Http\Controllers\Shop\ReviewController;
 use App\Http\Controllers\Shop\WishlistController;
 use App\Http\Middleware\ShareStorefrontContext;
+use App\Support\AdminHost;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,9 +36,25 @@ use Illuminate\Support\Facades\Route;
 | Prices and stock come from the branch in the session (BR-8), never from the
 | signed-in user's `branch_id` — see App\Services\Branch\StorefrontBranch.
 |
+| Once the staff panels have a host of their own (ADR-063), every storefront
+| route is bound to the host of APP_URL, so the panel host serves no shop
+| pages. `AdminHost::storefrontRouteDomain()` is null until then, which leaves
+| the routes unbound as before.
+|
 */
 
-Route::middleware(ShareStorefrontContext::class)->group(function () {
+/*
+ * The panel host has no shop to show at its root, so it forwards to the
+ * generic dashboard: a guest is sent to sign in there, and staff onward to
+ * their panel by `RoleHome`.
+ */
+if (AdminHost::panelRouteDomain() !== null) {
+    Route::domain(AdminHost::panelRouteDomain())->group(function () {
+        Route::redirect('/', '/dashboard');
+    });
+}
+
+Route::domain(AdminHost::storefrontRouteDomain())->middleware(ShareStorefrontContext::class)->group(function () {
     // Named `home` rather than `shop.home`: `UserRole::homeRouteName()` and
     // `config('fortify.home')` have pointed at that name since P1-E1-T7, and
     // renaming it would silently change where a customer lands after signing in.
@@ -94,7 +111,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 |
 */
 
-Route::middleware(ShareStorefrontContext::class)->name('shop.')->group(function () {
+Route::domain(AdminHost::storefrontRouteDomain())->middleware(ShareStorefrontContext::class)->name('shop.')->group(function () {
     // Cart — open to guests and authenticated users
     Route::prefix('keranjang')->name('cart.')->group(function () {
         Route::get('/', [CartController::class, 'index'])->name('index');

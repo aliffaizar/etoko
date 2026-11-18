@@ -31,6 +31,7 @@ use App\Http\Controllers\Admin\ShipmentController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VoucherController;
 use App\Services\Reporting\ReportCatalog;
+use App\Support\AdminHost;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -51,9 +52,13 @@ use Illuminate\Support\Facades\Route;
 | account that has no branch assigned, so the narrowing below always has a
 | branch to narrow by.
 |
+| Served on the panel host only once `ADMIN_DOMAIN` is set (ADR-063); on
+| the storefront's host these paths do not exist and answer 404.
+|
 */
 
-Route::middleware(['auth', 'verified', 'branch'])
+Route::domain(AdminHost::panelRouteDomain())
+    ->middleware(['auth', 'verified', 'branch'])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {

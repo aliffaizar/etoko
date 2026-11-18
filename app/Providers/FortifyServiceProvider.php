@@ -10,6 +10,8 @@ use App\Http\Responses\RegisterResponse;
 use App\Http\Responses\TwoFactorLoginResponse;
 use App\Http\Responses\VerifyEmailResponse;
 use App\Models\User;
+use App\Support\AdminHost;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -81,6 +83,8 @@ class FortifyServiceProvider extends ServiceProvider
      *
      * The owner is nullable because an account can be soft deleted while its
      * passkeys stay behind; a passkey without a live owner is refused too.
+     *
+     * Both paths also refuse a customer on the panel host (P2-E9-T7).
      */
     private function configureAuthentication(): void
     {
@@ -91,11 +95,58 @@ class FortifyServiceProvider extends ServiceProvider
                 return null;
             }
 
-            return $user->is_active ? $user : null;
+            return self::maySignInHere($request, $user) ? $user : null;
         });
 
         Passkeys::authorizeLoginUsing(function (Request $request, ?PasskeyUser $user): bool {
-            return $user instanceof User && $user->is_active;
+            return $user instanceof User && self::maySignInHere($request, $user);
+        });
+
+        $this->configurePasswordResetLinks();
+    }
+
+    /**
+     * Whether the account may open a session on the host the request came to.
+     *
+     * A deactivated account may not sign in anywhere. On the panel host only
+     * staff may (ADR-063): the customer is refused with the same generic
+     * failure as a wrong password, so the panel host does not confirm that a
+     * shopper's address has an account. The two-factor challenge needs no
+     * check of its own — Fortify asks this callback for the password before it
+     * issues the challenge.
+     */
+    private static function maySignInHere(Request $request, User $user): bool
+    {
+        if (! $user->is_active) {
+            return false;
+        }
+
+        return ! AdminHost::serves($request) || $user->isStaff();
+    }
+
+    /**
+     * Send each account's reset link to the host it signs in on (ADR-063).
+     *
+     * Left alone, the link names whichever host the form was sent from. Once
+     * the panels have a host of their own, staff are sent to it and everyone
+     * else to the storefront, so a customer who asked on the panel host is not
+     * given a link to a host that will refuse them.
+     */
+    private function configurePasswordResetLinks(): void
+    {
+        if (! AdminHost::isSeparate()) {
+            return;
+        }
+
+        ResetPassword::createUrlUsing(function (User $user, string $token): string {
+            $path = route('password.reset', [
+                'token' => $token,
+                'email' => $user->getEmailForPasswordReset(),
+            ], absolute: false);
+
+            $root = $user->isStaff() ? AdminHost::rootUrl() : config('app.url');
+
+            return rtrim((string) $root, '/').$path;
         });
     }
 
@@ -106,6 +157,8 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::loginView(fn (Request $request) => Inertia::render('auth/login', [
             'canResetPassword' => Features::enabled(Features::resetPasswords()),
+            // Sign-up is refused on the panel host (RefuseRegistrationOnAdminHost).
+            'canRegister' => Features::enabled(Features::registration()) && ! AdminHost::serves($request),
             'status' => $request->session()->get('status'),
         ]));
 

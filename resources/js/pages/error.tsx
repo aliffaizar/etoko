@@ -1,6 +1,7 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import HostLink from '@/components/host-link';
 
 type ErrorPageProps = {
     status: number;
@@ -57,10 +58,10 @@ export default function ErrorPage({
                     )}
 
                     <Button asChild>
-                        <Link href={homeUrl}>
+                        <HostLink href={homeUrl}>
                             <ArrowLeft aria-hidden />
                             {homeLabel}
-                        </Link>
+                        </HostLink>
                     </Button>
                 </div>
             </main>

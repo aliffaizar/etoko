@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureBranchAccess;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RefuseRegistrationOnAdminHost;
 use App\Http\Middleware\SetBranchContext;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -39,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(
             remove: [SubstituteBindings::class],
             append: [
+                RefuseRegistrationOnAdminHost::class,
                 HandleAppearance::class,
                 SetBranchContext::class,
                 SubstituteBindings::class,

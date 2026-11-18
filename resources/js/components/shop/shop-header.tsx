@@ -32,6 +32,7 @@ import {
 import { UserMenuContent } from '@/components/user-menu-content';
 import { useAuthorization } from '@/hooks/use-authorization';
 import { useInitials } from '@/hooks/use-initials';
+import HostLink from '@/components/host-link';
 import { home, login, register } from '@/routes';
 import { dashboard as adminDashboard } from '@/routes/admin';
 import { dashboard as branchDashboard } from '@/routes/branch';
@@ -341,7 +342,10 @@ function AccountMenu() {
                     asChild
                     className="hidden sm:flex"
                 >
-                    <Link
+                    {/* The panel may be on a host of its own (ADR-063),
+                        where the staff member signs in again. */}
+                    <HostLink
+                        host="panel"
                         href={
                             auth.isCentral
                                 ? adminDashboard()
@@ -350,7 +354,7 @@ function AccountMenu() {
                     >
                         <Store aria-hidden />
                         Panel
-                    </Link>
+                    </HostLink>
                 </Button>
             )}
 
