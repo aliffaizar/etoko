@@ -1,11 +1,12 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/react-starter-kit",
+    "name": "aliffaizar/etoko",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Multi-Branch E-Commerce System: satu toko online untuk banyak cabang dengan katalog terpusat dan stok per cabang.",
     "keywords": [
         "laravel",
-        "framework"
+        "e-commerce",
+        "multi-branch"
     ],
     "license": "MIT",
     "require": {
